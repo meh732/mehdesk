@@ -68,7 +68,8 @@ export const DeploymentManagerModal: React.FC<DeploymentManagerModalProps> = ({
   const protocol = typeof window !== 'undefined' ? window.location.protocol : 'http:';
 
   // One-line bash installer command
-  const oneLineLinuxCmd = `curl -sSL ${protocol}//${currentHost}/api/scripts/linux | sudo bash`;
+  const oneLineLinuxCmd = `bash <(curl -Ls https://raw.githubusercontent.com/meh732/mehdesk/main/install.sh)`;
+  const oneLineDirectCmd = `curl -sSL ${protocol}//${currentHost}/install.sh | sudo bash`;
   const oneLineWinCmd = `powershell -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri '${protocol}//${currentHost}/api/scripts/windows-ps1' -OutFile 'install.ps1'; .\\install.ps1"`;
 
   const handleCopyCmd = (text: string, type: 'linux' | 'script' | 'win') => {
@@ -131,22 +132,22 @@ export const DeploymentManagerModal: React.FC<DeploymentManagerModalProps> = ({
     };
 
     if (optionNum === 1) {
-      addLog(`🚀 [1/6] شروع نصب سرور AnyDesk Remote Hub در لینوکس...`, 200);
+      addLog(`🚀 [1/6] شروع نصب سرور meh desk در لینوکس...`, 200);
       addLog(`🔹 پورت انتخابی: ${port} | دامنه: ${domain || 'آی‌پی سرور'}`, 600);
       addLog(`📦 [2/6] نصب پکیج‌های پایه: Node.js v20 LTS, Git, Nginx, Certbot, UFW...`, 1100);
-      addLog(`⚙️ [3/6] کامپایل پروژه و آماده‌سازی فایل‌های استاتیک در /opt/anydesk-remote...`, 1800);
+      addLog(`⚙️ [3/6] کامپایل پروژه و آماده‌سازی فایل‌های استاتیک در /usr/local/mehdesk...`, 1800);
       addLog(`🛡️ [4/6] باز کردن پورت ${port} و 443 در فایروال UFW...`, 2400);
       if (domain && enableSsl) {
         addLog(`🔒 [5/6] ثبت و فعال‌سازی خودکار گواهی SSL رایگان Let's Encrypt برای ${domain}...`, 3100);
       } else {
         addLog(`⚡ [5/6] تنظیم پروکسی معکوس Nginx با پورت داخلی ${port}...`, 3100);
       }
-      addLog(`⭐ [6/6] ساخت و راه‌اندازی سرویس Systemd (anydesk-remote.service)...`, 3700);
+      addLog(`⭐ [6/6] ساخت و راه‌اندازی سرویس Systemd (mehdesk.service)...`, 3700);
       addLog(`🎉 نصب با موفقیت پایان یافت! آدرس دسترسی: http://${domain || 'YOUR_SERVER_IP'}:${port}`, 4300);
       setTimeout(() => setIsSimulating(false), 4500);
     } else if (optionNum === 2) {
-      addLog(`🔄 [1/4] شروع آپدیت هوشمند AnyDesk بدون پاک شدن اطلاعات...`, 200);
-      addLog(`📦 [2/4] ایجاد آرشیو پشتیبان کامل: anydesk_backup_update_${new Date().toISOString().slice(0, 10)}.tar.gz`, 800);
+      addLog(`🔄 [1/4] شروع آپدیت هوشمند meh desk بدون پاک شدن اطلاعات...`, 200);
+      addLog(`📦 [2/4] ایجاد آرشیو پشتیبان کامل: mehdesk_backup_update_${new Date().toISOString().slice(0, 10)}.tar.gz`, 800);
       if (tgToken) addLog(`✈️ [TELEGRAM] ارسال فایل بکاپ به ربات تلگرام (Chat ID: ${tgChat || '---'})... ✔ موفق`, 1500);
       if (baleToken) addLog(`💬 [BALE] ارسال فایل بکاپ به ربات بله (https://tapi.bale.ai)... ✔ موفق`, 2200);
       addLog(`🛡️ [3/4] محافظت و فریز دیتابیس دستگاه‌ها (devices.json) و کلیدهای امنیتی...`, 2800);
@@ -156,15 +157,15 @@ export const DeploymentManagerModal: React.FC<DeploymentManagerModalProps> = ({
     } else if (optionNum === 3) {
       addLog(`🗑️ [1/3] آغاز فرآیند حذف امن (Uninstall)...`, 200);
       addLog(`⚠️ [2/3] تهیه بکاپ اضطراری نهایی قبل از حذف و ارسال به ربات‌های بله و تلگرام... ✔ ارسال شد`, 1000);
-      addLog(`🛑 [3/3] متوقف‌سازی و غیرفعال‌سازی سرویس Systemd (anydesk-remote)...`, 1800);
-      addLog(`🧹 پاکسازی فایل‌های باینری. نسخه‌های پشتیبان در /opt/anydesk-remote/backups محفوظ ماند.`, 2600);
+      addLog(`🛑 [3/3] متوقف‌سازی و غیرفعال‌سازی سرویس Systemd (mehdesk)...`, 1800);
+      addLog(`🧹 پاکسازی فایل‌های باینری. نسخه‌های پشتیبان در /usr/local/mehdesk/backups محفوظ ماند.`, 2600);
       addLog(`✔ حذف کامل با حفظ نسخه‌های بکاپ به اتمام رسید.`, 3200);
       setTimeout(() => setIsSimulating(false), 3400);
     } else if (optionNum === 4) {
       addLog(`📦 [1/3] آماده‌سازی محیط بیلد پورتابل Tauri Desktop...`, 200);
       addLog(`🦀 [2/3] بررسی کامپایلر Rust/Cargo و تولید کلاینت سبک ۵ مگابایتی...`, 1200);
-      addLog(`🚀 [3/3] ایجاد باینری AnyDesk-Portable.exe (مخصوص ویندوز بدون نیاز به نصب)...`, 2200);
-      addLog(`🎉 فایل پورتابل ویندوز و لینوکس آماده دانلود در /dist/anydesk-portable.exe است.`, 3000);
+      addLog(`🚀 [3/3] ایجاد باینری mehdesk-Portable.exe (مخصوص ویندوز بدون نیاز به نصب)...`, 2200);
+      addLog(`🎉 فایل پورتابل ویندوز و لینوکس آماده دانلود در /dist/mehdesk-portable.exe است.`, 3000);
       setTimeout(() => setIsSimulating(false), 3200);
     }
   };
@@ -181,9 +182,9 @@ export const DeploymentManagerModal: React.FC<DeploymentManagerModalProps> = ({
             </div>
             <div>
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <span>{isRtl ? 'مدیریت نصب، استقرار و اسکریپت‌های سرور AnyDesk' : 'AnyDesk Server Deployment & Installer Suite'}</span>
+                <span>{isRtl ? 'مدیریت نصب، استقرار و اسکریپت‌های سرور meh desk' : 'meh desk Server Deployment & Installer Suite'}</span>
                 <span className="bg-red-500/20 text-red-400 border border-red-500/40 text-[10px] px-2 py-0.5 rounded font-mono font-bold">
-                  v8.5 Production
+                  v9.0 Production
                 </span>
               </h2>
               <p className="text-xs text-slate-400">

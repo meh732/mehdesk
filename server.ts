@@ -198,10 +198,13 @@ app.post("/api/admin/dispatch-backup", async (req, res) => {
   });
 });
 
-// API: Dynamic Linux Bash Script Generator & Downloader (Supports mehdesk-linux-manager.sh)
-app.get(["/api/scripts/linux", "/api/scripts/mehdesk-linux"], (req, res) => {
+// API: Dynamic Linux Bash Script Generator & Downloader (Supports mehdesk-linux-manager.sh and install.sh)
+app.get(["/install.sh", "/api/scripts/install", "/api/scripts/linux", "/api/scripts/mehdesk-linux"], (req, res) => {
   const fs = require("fs");
-  let scriptPath = path.join(process.cwd(), "scripts", "mehdesk-linux-manager.sh");
+  let scriptPath = path.join(process.cwd(), "install.sh");
+  if (!fs.existsSync(scriptPath)) {
+    scriptPath = path.join(process.cwd(), "scripts", "mehdesk-linux-manager.sh");
+  }
   if (!fs.existsSync(scriptPath)) {
     scriptPath = path.join(process.cwd(), "scripts", "anydesk-linux-manager.sh");
   }
@@ -222,7 +225,7 @@ app.get(["/api/scripts/linux", "/api/scripts/mehdesk-linux"], (req, res) => {
     }
 
     res.setHeader("Content-Type", "text/x-shellscript");
-    res.setHeader("Content-Disposition", 'attachment; filename="mehdesk-linux-manager.sh"');
+    res.setHeader("Content-Disposition", 'attachment; filename="install.sh"');
     res.send(content);
   } else {
     res.status(404).send("#!/bin/bash\necho 'meh desk script not found on server'");
