@@ -1,0 +1,599 @@
+import express from "express";
+import http from "http";
+import path from "path";
+import { WebSocketServer, WebSocket } from "ws";
+import { GoogleGenAI } from "@google/genai";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+const app = express();
+const PORT = 3000;
+
+app.use(express.json());
+
+// Initialize Gemini client lazily
+let aiClient: GoogleGenAI | null = null;
+function getAI() {
+  if (!aiClient && process.env.GEMINI_API_KEY) {
+    aiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  }
+  return aiClient;
+}
+
+// In-memory registry of active peer rooms and remote desks
+interface PeerClient {
+  id: string;
+  ws: WebSocket;
+  alias?: string;
+  isHost?: boolean;
+  unattendedPassword?: string;
+  deviceInfo?: {
+    os: string;
+    name: string;
+    screenResolution?: string;
+  };
+}
+
+const activeClients = new Map<string, PeerClient>();
+const rooms = new Map<string, Set<string>>(); // hostId -> Set of viewerIds
+
+// API: Check server health
+app.get("/api/health", (req, res) => {
+  res.json({
+    status: "ok",
+    activePeers: activeClients.size,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// API: Get online devices or search by ID
+app.get("/api/devices/lookup/:id", (req, res) => {
+  const targetId = req.params.id.replace(/\s+/g, "");
+  const peer = activeClients.get(targetId);
+  if (peer) {
+    res.json({
+      found: true,
+      id: peer.id,
+      alias: peer.alias || `${peer.id}@desk`,
+      isHost: peer.isHost,
+      hasPassword: !!peer.unattendedPassword,
+      deviceInfo: peer.deviceInfo
+    });
+  } else {
+    res.json({ found: false });
+  }
+});
+
+// In-memory admin settings store
+interface AdminConfig {
+  adminPin: string;
+  telegramToken: string;
+  telegramAdminChatIds: string[];
+  baleToken: string;
+  baleAdminChatIds: string[];
+  autoBackupEnabled: boolean;
+  backupIntervalHours: number;
+  notifyOnConnection: boolean;
+  serverDomain: string;
+  serverPort: number;
+  enforce2FA: boolean;
+  sessionTimeoutMinutes: number;
+}
+
+let adminConfig: AdminConfig = {
+  adminPin: "123456",
+  telegramToken: "",
+  telegramAdminChatIds: [],
+  baleToken: "",
+  baleAdminChatIds: [],
+  autoBackupEnabled: true,
+  backupIntervalHours: 6,
+  notifyOnConnection: true,
+  serverDomain: "localhost",
+  serverPort: 3000,
+  enforce2FA: false,
+  sessionTimeoutMinutes: 120
+};
+
+// API: Get Admin Settings
+app.get("/api/admin/settings", (req, res) => {
+  res.json({
+    success: true,
+    config: adminConfig,
+    activeSessionsCount: rooms.size,
+    registeredDevicesCount: activeClients.size
+  });
+});
+
+// API: Save Admin Settings
+app.post("/api/admin/settings", (req, res) => {
+  const newConfig = req.body;
+  adminConfig = {
+    ...adminConfig,
+    ...newConfig,
+    telegramAdminChatIds: Array.isArray(newConfig.telegramAdminChatIds) 
+      ? newConfig.telegramAdminChatIds 
+      : (newConfig.telegramAdminChatIds ? String(newConfig.telegramAdminChatIds).split(/[\s,]+/).filter(Boolean) : []),
+    baleAdminChatIds: Array.isArray(newConfig.baleAdminChatIds) 
+      ? newConfig.baleAdminChatIds 
+      : (newConfig.baleAdminChatIds ? String(newConfig.baleAdminChatIds).split(/[\s,]+/).filter(Boolean) : [])
+  };
+  res.json({ success: true, config: adminConfig });
+});
+
+// API: Dispatch Full Backup to all configured Telegram and Bale Admins
+app.post("/api/admin/dispatch-backup", async (req, res) => {
+  const https = await import("https");
+  const now = new Date().toLocaleString("fa-IR");
+  
+  const backupSummary = {
+    timestamp: new Date().toISOString(),
+    totalOnlinePeers: activeClients.size,
+    peers: Array.from(activeClients.values()).map(p => ({
+      id: p.id,
+      alias: p.alias,
+      isHost: p.isHost,
+      device: p.deviceInfo?.name,
+      os: p.deviceInfo?.os
+    }))
+  };
+
+  const textPayload = `📦 پشتیبان‌گیری خودکار meh desk\n📅 تاریخ: ${now}\n💻 تعداد کلاینت‌های متصل: ${activeClients.size}\n🔒 وضعیت سرور: امن و فعال\n🔗 دامنه: ${adminConfig.serverDomain}:${adminConfig.serverPort}`;
+  const results = { telegramSent: 0, baleSent: 0, errors: [] as string[] };
+
+  // Send to Telegram Admins
+  if (adminConfig.telegramToken && adminConfig.telegramAdminChatIds.length > 0) {
+    for (const chatId of adminConfig.telegramAdminChatIds) {
+      try {
+        const body = JSON.stringify({ chat_id: chatId, text: textPayload });
+        await new Promise<void>((resolve) => {
+          const r = https.request({
+            hostname: "api.telegram.org",
+            path: `/bot${adminConfig.telegramToken}/sendMessage`,
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) },
+            timeout: 5000
+          }, () => resolve());
+          r.on("error", () => resolve());
+          r.write(body);
+          r.end();
+        });
+        results.telegramSent++;
+      } catch (err: any) {
+        results.errors.push(`Telegram (${chatId}): ${err.message}`);
+      }
+    }
+  }
+
+  // Send to Bale Admins (https://tapi.bale.ai)
+  if (adminConfig.baleToken && adminConfig.baleAdminChatIds.length > 0) {
+    for (const chatId of adminConfig.baleAdminChatIds) {
+      try {
+        const body = JSON.stringify({ chat_id: chatId, text: textPayload });
+        await new Promise<void>((resolve) => {
+          const r = https.request({
+            hostname: "tapi.bale.ai",
+            path: `/bot${adminConfig.baleToken}/sendMessage`,
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) },
+            timeout: 5000
+          }, () => resolve());
+          r.on("error", () => resolve());
+          r.write(body);
+          r.end();
+        });
+        results.baleSent++;
+      } catch (err: any) {
+        results.errors.push(`Bale (${chatId}): ${err.message}`);
+      }
+    }
+  }
+
+  res.json({
+    success: true,
+    results,
+    backupData: backupSummary,
+    message: `بکاپ به ${results.telegramSent} ادمین تلگرام و ${results.baleSent} ادمین بله ارسال شد.`
+  });
+});
+
+// API: Dynamic Linux Bash Script Generator & Downloader (Supports mehdesk-linux-manager.sh)
+app.get(["/api/scripts/linux", "/api/scripts/mehdesk-linux"], (req, res) => {
+  const fs = require("fs");
+  let scriptPath = path.join(process.cwd(), "scripts", "mehdesk-linux-manager.sh");
+  if (!fs.existsSync(scriptPath)) {
+    scriptPath = path.join(process.cwd(), "scripts", "anydesk-linux-manager.sh");
+  }
+  if (fs.existsSync(scriptPath)) {
+    let content = fs.readFileSync(scriptPath, "utf8");
+    // If admin has configured bot tokens, inject them as default values into the script!
+    if (adminConfig.telegramToken) {
+      content = content.replace(/TG_BOT_TOKEN="[^"]*"/, `TG_BOT_TOKEN="${adminConfig.telegramToken}"`);
+    }
+    if (adminConfig.telegramAdminChatIds.length > 0) {
+      content = content.replace(/TG_CHAT_ID="[^"]*"/, `TG_CHAT_ID="${adminConfig.telegramAdminChatIds[0]}"`);
+    }
+    if (adminConfig.baleToken) {
+      content = content.replace(/BALE_BOT_TOKEN="[^"]*"/, `BALE_BOT_TOKEN="${adminConfig.baleToken}"`);
+    }
+    if (adminConfig.baleAdminChatIds.length > 0) {
+      content = content.replace(/BALE_CHAT_ID="[^"]*"/, `BALE_CHAT_ID="${adminConfig.baleAdminChatIds[0]}"`);
+    }
+
+    res.setHeader("Content-Type", "text/x-shellscript");
+    res.setHeader("Content-Disposition", 'attachment; filename="mehdesk-linux-manager.sh"');
+    res.send(content);
+  } else {
+    res.status(404).send("#!/bin/bash\necho 'meh desk script not found on server'");
+  }
+});
+
+// API: Dynamic Windows PowerShell Script Downloader
+app.get("/api/scripts/windows-ps1", (req, res) => {
+  const fs = require("fs");
+  const scriptPath = path.join(process.cwd(), "scripts", "install-windows.ps1");
+  if (fs.existsSync(scriptPath)) {
+    let content = fs.readFileSync(scriptPath, "utf8");
+    if (adminConfig.telegramToken) {
+      content = content.replace(/\$tgToken = "[^"]*"/, `$tgToken = "${adminConfig.telegramToken}"`);
+    }
+    if (adminConfig.baleToken) {
+      content = content.replace(/\$baleToken = "[^"]*"/, `$baleToken = "${adminConfig.baleToken}"`);
+    }
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="install-windows.ps1"');
+    res.send(content);
+  } else {
+    res.status(404).send("# PowerShell script not found");
+  }
+});
+
+// API: Test Bot connection for Telegram & Bale
+app.post("/api/bots/test", async (req, res) => {
+  const { telegramToken, telegramChatId, baleToken, baleChatId } = req.body;
+  const results = {
+    telegram: { tested: false, success: false, message: "" },
+    bale: { tested: false, success: false, message: "" }
+  };
+
+  const https = await import("https");
+
+  // Test Telegram
+  if (telegramToken && telegramChatId) {
+    results.telegram.tested = true;
+    try {
+      const tgPayload = JSON.stringify({
+        chat_id: telegramChatId,
+        text: `🚀 تست اتصال موفق ربات تلگرام از سرور AnyDesk Remote Hub\n📅 تاریخ: ${new Date().toLocaleString('fa-IR')}\nوضعیت: آنلاین و آماده پشتیبان‌گیری خودکار`
+      });
+
+      const tgSuccess = await new Promise<boolean>((resolve) => {
+        const req = https.request({
+          hostname: "api.telegram.org",
+          path: `/bot${telegramToken}/sendMessage`,
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": Buffer.byteLength(tgPayload)
+          },
+          timeout: 5000
+        }, (resp) => {
+          let data = "";
+          resp.on("data", chunk => data += chunk);
+          resp.on("end", () => {
+            try {
+              const parsed = JSON.parse(data);
+              resolve(parsed.ok === true);
+            } catch {
+              resolve(false);
+            }
+          });
+        });
+        req.on("error", () => resolve(false));
+        req.on("timeout", () => { req.destroy(); resolve(false); });
+        req.write(tgPayload);
+        req.end();
+      });
+
+      results.telegram.success = tgSuccess;
+      results.telegram.message = tgSuccess ? "پیام با موفقیت به تلگرام ارسال شد." : "خطا در ارتباط با سرور تلگرام یا اشتباه بودن توکن/چت‌آیدی.";
+    } catch (e: any) {
+      results.telegram.message = e.message;
+    }
+  }
+
+  // Test Bale (https://tapi.bale.ai)
+  if (baleToken && baleChatId) {
+    results.bale.tested = true;
+    try {
+      const balePayload = JSON.stringify({
+        chat_id: baleChatId,
+        text: `🚀 تست اتصال موفق ربات بله از سرور AnyDesk Remote Hub\n📅 تاریخ: ${new Date().toLocaleString('fa-IR')}\nوضعیت: آنلاین و آماده پشتیبان‌گیری خودکار`
+      });
+
+      const baleSuccess = await new Promise<boolean>((resolve) => {
+        const req = https.request({
+          hostname: "tapi.bale.ai",
+          path: `/bot${baleToken}/sendMessage`,
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": Buffer.byteLength(balePayload)
+          },
+          timeout: 5000
+        }, (resp) => {
+          let data = "";
+          resp.on("data", chunk => data += chunk);
+          resp.on("end", () => {
+            try {
+              const parsed = JSON.parse(data);
+              resolve(parsed.ok === true);
+            } catch {
+              resolve(false);
+            }
+          });
+        });
+        req.on("error", () => resolve(false));
+        req.on("timeout", () => { req.destroy(); resolve(false); });
+        req.write(balePayload);
+        req.end();
+      });
+
+      results.bale.success = baleSuccess;
+      results.bale.message = baleSuccess ? "پیام با موفقیت به پیام‌رسان بله ارسال شد." : "خطا در اتصال به API بله (tapi.bale.ai) یا توکن نامعتبر است.";
+    } catch (e: any) {
+      results.bale.message = e.message;
+    }
+  }
+
+  res.json({ success: true, results });
+});
+
+// API: AI Remote IT Support & Troubleshooting
+app.post("/api/ai/diagnose", async (req, res) => {
+  try {
+    const { problemDescription, os, systemInfo } = req.body;
+    const ai = getAI();
+
+    if (!ai) {
+      // Fallback smart diagnosis if key not configured
+      return res.json({
+        success: true,
+        analysis: `تحلیل هوشمند (آفلاین): مشکل گزارش شده در سیستم ${os || 'ویندوز'}: "${problemDescription}".\n\nپیشنهادهای رفع عیب:\n1. بررسی لاگ رویدادها (Event Viewer) برای خطاهای سیستمی اخیر.\n2. ریستارت سرویس‌های مرتبط با دستور: net stop [service] && net start [service]\n3. بررسی مصرف منابع با ابزار Task Manager / htop.\n4. پاکسازی فایل‌های کش موقت با اجرای دستور: cleanmgr یا rm -rf /tmp/*`,
+        suggestedCommands: [
+          "sfc /scannow",
+          "dism /online /cleanup-image /restorehealth",
+          "ipconfig /flushdns",
+          "tasklist /v"
+        ]
+      });
+    }
+
+    const prompt = `شما یک متخصص ارشد پشتیبانی فنی و Helpdesk شبکه و ریموت دسکتاپ هستید (مانند تکنسین ارشد AnyDesk).
+کاربر این مشکل را در کامپیوتر مقصد گزارش کرده است:
+سیستم عامل: ${os || 'Windows 11'}
+مشخصات سیستم: ${JSON.stringify(systemInfo || {})}
+شرح مشکل: "${problemDescription}"
+
+لطفاً پاسخی کاربردی، دقیق و ساختاریافته به زبان فارسی به فرمت JSON ارائه دهید با فیلدهای:
+{
+  "analysis": "توضیح دلیل رخ دادن مشکل و مراحل گام به گام حل آن به فارسی روان",
+  "rootCause": "علت احتمالی ریشه‌ای",
+  "suggestedCommands": ["دستور 1 برای ترمینال", "دستور 2", "دستور 3"],
+  "preventativeTips": "توصیه برای عدم تکرار مشکل"
+}`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json"
+      }
+    });
+
+    const text = response.text || "{}";
+    try {
+      const parsed = JSON.parse(text);
+      res.json({ success: true, ...parsed });
+    } catch {
+      res.json({ success: true, analysis: text, suggestedCommands: ["ipconfig /all", "systeminfo"] });
+    }
+  } catch (error: any) {
+    console.error("AI Diagnose error:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "خطا در پردازش با هوش مصنوعی"
+    });
+  }
+});
+
+// API: AI Remote Script Generator
+app.post("/api/ai/script-generator", async (req, res) => {
+  try {
+    const { taskDescription, scriptType } = req.body;
+    const ai = getAI();
+
+    if (!ai) {
+      return res.json({
+        success: true,
+        script: `# PowerShell script for: ${taskDescription}\nWrite-Host "Running automated task..."\nGet-Process | Sort-Object CPU -Descending | Select-Object -First 10\nWrite-Host "Task completed successfully."`,
+        explanation: "اسکریپت پیش‌فرض برای دریافت پرمصرف‌ترین فرآیندهای سیستم."
+      });
+    }
+
+    const prompt = `یک اسکریپت ریموت ${scriptType || 'PowerShell / Bash'} تمیز و امن برای وظیفه زیر بنویس:
+وظیفه: "${taskDescription}"
+فرمت خروجی JSON با فیلدهای:
+{
+  "script": "متن کامل اسکریپت",
+  "explanation": "توضیح فارسی از نحوه کار اسکریپت",
+  "riskLevel": "Low / Medium / High",
+  "requiredPrivileges": "Admin / Normal"
+}`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json"
+      }
+    });
+
+    const parsed = JSON.parse(response.text || "{}");
+    res.json({ success: true, ...parsed });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Create HTTP server
+const server = http.createServer(app);
+
+// Setup WebSocket Signaling server
+const wss = new WebSocketServer({ server, path: "/ws/signal" });
+
+wss.on("connection", (ws: WebSocket) => {
+  let peerId: string = "";
+
+  ws.on("message", (rawMessage: string) => {
+    try {
+      const data = JSON.parse(rawMessage.toString());
+
+      switch (data.type) {
+        // Register client ID (Host or Client)
+        case "register": {
+          peerId = data.id;
+          activeClients.set(peerId, {
+            id: peerId,
+            ws,
+            alias: data.alias,
+            isHost: data.isHost,
+            unattendedPassword: data.unattendedPassword,
+            deviceInfo: data.deviceInfo
+          });
+
+          ws.send(JSON.stringify({
+            type: "registered",
+            id: peerId,
+            status: "ready"
+          }));
+
+          // Broadcast peer update if needed
+          break;
+        }
+
+        // Connection request from viewer to host
+        case "connect_request": {
+          const targetHost = activeClients.get(data.targetId);
+          if (targetHost && targetHost.ws.readyState === WebSocket.OPEN) {
+            targetHost.ws.send(JSON.stringify({
+              type: "incoming_connection",
+              fromId: data.fromId,
+              fromAlias: data.fromAlias,
+              fromDevice: data.fromDevice,
+              requestType: data.requestType || "full_control",
+              requiresPassword: !!targetHost.unattendedPassword,
+              providedPassword: data.providedPassword
+            }));
+          } else {
+            ws.send(JSON.stringify({
+              type: "connect_error",
+              message: "دستگاه مقصد آفلاین است یا شناسه اشتباه وارد شده است."
+            }));
+          }
+          break;
+        }
+
+        // Host accepts or rejects connection
+        case "connect_response": {
+          const viewer = activeClients.get(data.toId);
+          if (viewer && viewer.ws.readyState === WebSocket.OPEN) {
+            viewer.ws.send(JSON.stringify({
+              type: "connection_result",
+              accepted: data.accepted,
+              permissions: data.permissions,
+              reason: data.reason
+            }));
+
+            if (data.accepted) {
+              if (!rooms.has(data.hostId)) {
+                rooms.set(data.hostId, new Set());
+              }
+              rooms.get(data.hostId)?.add(data.toId);
+            }
+          }
+          break;
+        }
+
+        // WebRTC Signaling: Offer, Answer, ICE candidate forwarding
+        case "signal_offer":
+        case "signal_answer":
+        case "signal_ice":
+        case "remote_input":
+        case "clipboard_sync":
+        case "file_meta":
+        case "file_chunk":
+        case "whiteboard_draw":
+        case "chat_message":
+        case "session_control": {
+          const target = activeClients.get(data.targetId);
+          if (target && target.ws.readyState === WebSocket.OPEN) {
+            target.ws.send(JSON.stringify(data));
+          }
+          break;
+        }
+
+        case "ping": {
+          ws.send(JSON.stringify({ type: "pong", time: Date.now() }));
+          break;
+        }
+      }
+    } catch (err) {
+      console.error("WS error:", err);
+    }
+  });
+
+  ws.on("close", () => {
+    if (peerId) {
+      activeClients.delete(peerId);
+      // Clean up rooms
+      rooms.delete(peerId);
+      for (const [hostId, viewers] of rooms.entries()) {
+        if (viewers.has(peerId)) {
+          viewers.delete(peerId);
+          const host = activeClients.get(hostId);
+          if (host && host.ws.readyState === WebSocket.OPEN) {
+            host.ws.send(JSON.stringify({
+              type: "viewer_disconnected",
+              viewerId: peerId
+            }));
+          }
+        }
+      }
+    }
+  });
+});
+
+async function start() {
+  if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), "dist");
+    app.use(express.static(distPath));
+    app.get("*", (req, res) => {
+      res.sendFile(path.join(distPath, "index.html"));
+    });
+  }
+
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log(`AnyDesk Remote Server running on http://localhost:${PORT}`);
+  });
+}
+
+start();

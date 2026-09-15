@@ -1,0 +1,6 @@
+{
+  "name": "meh desk - ریموت دسکتاپ و کنترل از راه دور",
+  "description": "سیستم کنترل از راه دور و ریموت دسکتاپ meh desk با پشتیبانی PWA برای گوشی و کامپیوتر، اشتراک امن صفحه WebRTC با تایید دسترسی کاربر، پنل ادمین بات تلگرام و بله و مدیریت ناوگان",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
