@@ -85,8 +85,20 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
   // Mobile Controls & Touchpad
   const [mobileTouchpadVisible, setMobileTouchpadVisible] = useState(false);
   const [mobileKeyboardVisible, setMobileKeyboardVisible] = useState(false);
+  const [mobileTextInput, setMobileTextInput] = useState('');
   const [mousePos, setMousePos] = useState({ x: 500, y: 320 });
   const [isClicking, setIsClicking] = useState(false);
+  const [rightClickMenuPos, setRightClickMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const [touchFeedback, setTouchFeedback] = useState<{ x: number; y: number; type: 'left' | 'right' } | null>(null);
+  const [activeModifiers, setActiveModifiers] = useState<{ ctrl: boolean; alt: boolean; shift: boolean; win: boolean }>({
+    ctrl: false,
+    alt: false,
+    shift: false,
+    win: false,
+  });
+
+  const touchTimerRef = useRef<any>(null);
+  const touchStartPosRef = useRef<{ x: number; y: number; time: number }>({ x: 0, y: 0, time: 0 });
 
   // Stats
   const [stats, setStats] = useState<SessionStats>({
@@ -219,6 +231,95 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
     const touchX = ((touch.clientX - rect.left) / rect.width) * 1920;
     const touchY = ((touch.clientY - rect.top) / rect.height) * 1080;
     setMousePos({ x: Math.max(0, Math.min(1920, touchX)), y: Math.max(0, Math.min(1080, touchY)) });
+  };
+
+  // Direct Screen Touch Gestures (Single Tap = Left Click, Long Press / Two Fingers = Right Click)
+  const handleScreenTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (whiteboardActive) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const touch = e.touches[0];
+    const x = ((touch.clientX - rect.left) / rect.width) * 1920;
+    const y = ((touch.clientY - rect.top) / rect.height) * 1080;
+    setMousePos({ x, y });
+
+    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
+
+    if (e.touches.length === 2) {
+      // Two-Finger Tap = Instant Right Click
+      e.preventDefault();
+      triggerRightClick(x, y);
+      return;
+    }
+
+    // Long Press Timer (500ms) for Right Click
+    touchTimerRef.current = setTimeout(() => {
+      triggerRightClick(x, y);
+    }, 550);
+  };
+
+  const handleScreenTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (whiteboardActive) return;
+    const touch = e.touches[0];
+    const rect = e.currentTarget.getBoundingClientRect();
+    const deltaX = Math.abs(touch.clientX - touchStartPosRef.current.x);
+    const deltaY = Math.abs(touch.clientY - touchStartPosRef.current.y);
+
+    // Cancel long press if finger moved significantly (scrolling / dragging)
+    if (deltaX > 10 || deltaY > 10) {
+      if (touchTimerRef.current) {
+        clearTimeout(touchTimerRef.current);
+        touchTimerRef.current = null;
+      }
+    }
+
+    const x = ((touch.clientX - rect.left) / rect.width) * 1920;
+    const y = ((touch.clientY - rect.top) / rect.height) * 1080;
+    setMousePos({ x, y });
+  };
+
+  const handleScreenTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (whiteboardActive) return;
+    if (touchTimerRef.current) {
+      clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = null;
+    }
+
+    const elapsed = Date.now() - touchStartPosRef.current.time;
+    if (elapsed < 350 && !rightClickMenuPos) {
+      // Short Tap = Left Click
+      triggerLeftClick(mousePos.x, mousePos.y);
+    }
+  };
+
+  const triggerLeftClick = (x: number, y: number) => {
+    setRightClickMenuPos(null);
+    setIsClicking(true);
+    setTouchFeedback({ x, y, type: 'left' });
+    setTimeout(() => {
+      setIsClicking(false);
+      setTouchFeedback(null);
+    }, 250);
+  };
+
+  const triggerRightClick = (x: number, y: number) => {
+    setIsClicking(true);
+    setTouchFeedback({ x, y, type: 'right' });
+    setRightClickMenuPos({ x: Math.min(x, 1650), y: Math.min(y, 850) });
+    setTimeout(() => {
+      setIsClicking(false);
+      setTouchFeedback(null);
+    }, 250);
+  };
+
+  const handleSendMobileText = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mobileTextInput) return;
+    // Simulate typing text into remote application
+    setMobileTextInput('');
+  };
+
+  const toggleModifier = (key: 'ctrl' | 'alt' | 'shift' | 'win') => {
+    setActiveModifiers(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
   return (
@@ -479,7 +580,12 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
       )}
 
       {/* REMOTE SCREEN CANVAS / VIDEO STAGE */}
-      <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
+      <div 
+        className="flex-1 relative bg-black flex items-center justify-center overflow-hidden touch-none"
+        onTouchStart={handleScreenTouchStart}
+        onTouchMove={handleScreenTouchMove}
+        onTouchEnd={handleScreenTouchEnd}
+      >
         {/* Real WebRTC Video if stream exists */}
         {realStream ? (
           <video
@@ -603,13 +709,6 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
                         <td className="p-2 border border-slate-700 text-cyan-400">۲,۱۵۰,۰۰۰,۰۰۰</td>
                         <td className="p-2 border border-slate-700 text-emerald-400">ثبت در حساب جاری</td>
                       </tr>
-                      <tr className="hover:bg-slate-800/60 border-b border-slate-800">
-                        <td className="p-2 border border-slate-700">DOC-1403-893</td>
-                        <td className="p-2 border border-slate-700">هزینه اینترنت فیبر نوری و پهنای باند اختصاصی</td>
-                        <td className="p-2 border border-slate-700 text-emerald-400">۱۲۰,۰۰۰,۰۰۰</td>
-                        <td className="p-2 border border-slate-700">۰</td>
-                        <td className="p-2 border border-slate-700 text-amber-400">در انتظار امضا</td>
-                      </tr>
                     </tbody>
                   </table>
                 </div>
@@ -647,15 +746,6 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
                       <div className="text-[10px] text-slate-500">Send: 4.2 MB/s</div>
                     </div>
                   </div>
-
-                  <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800 space-y-2">
-                    <div className="text-slate-400 font-bold">پروسه‌های در حال اجرا:</div>
-                    <div className="space-y-1 text-[11px]">
-                      <div className="flex justify-between text-slate-200"><span>AnyDesk Remote Service</span><span className="text-emerald-400">0.8% CPU • 64 MB</span></div>
-                      <div className="flex justify-between text-slate-200"><span>Accounting ERP Database</span><span className="text-blue-400">4.5% CPU • 380 MB</span></div>
-                      <div className="flex justify-between text-slate-200"><span>Windows Desktop Window Manager</span><span className="text-slate-400">1.2% CPU • 140 MB</span></div>
-                    </div>
-                  </div>
                 </div>
               </div>
             )}
@@ -680,6 +770,47 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
 ۴. آدرس پرتال داخلی: https://corp-portal.local`}
                   className="flex-1 bg-slate-900 p-3 text-xs text-slate-200 font-mono resize-none focus:outline-none"
                 />
+              </div>
+            )}
+
+            {/* REALISTIC RIGHT-CLICK CONTEXT MENU */}
+            {rightClickMenuPos && (
+              <div 
+                className="absolute z-40 bg-[#1a1d28]/95 border border-slate-700 rounded-xl shadow-2xl py-1 text-xs text-slate-200 w-48 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100"
+                style={{ left: `${rightClickMenuPos.x}px`, top: `${rightClickMenuPos.y}px` }}
+              >
+                <div className="px-3 py-1 text-[10px] font-bold text-slate-400 border-b border-slate-800">
+                  {isRtl ? 'منوی کلیک راست سیستم مقصد' : 'Remote Context Menu'}
+                </div>
+                <button 
+                  onClick={() => { setActiveWindow('notepad'); setRightClickMenuPos(null); }}
+                  className="w-full text-right px-3 py-1.5 hover:bg-slate-800 flex items-center justify-between"
+                >
+                  <span>{isRtl ? 'باز کردن یادداشت جدید' : 'New Text Note'}</span>
+                  <FileText className="w-3.5 h-3.5 text-slate-400" />
+                </button>
+                <button 
+                  onClick={() => { setActiveWindow('taskmgr'); setRightClickMenuPos(null); }}
+                  className="w-full text-right px-3 py-1.5 hover:bg-slate-800 flex items-center justify-between"
+                >
+                  <span>{isRtl ? 'مدیریت وظایف (Task Manager)' : 'Task Manager'}</span>
+                  <Cpu className="w-3.5 h-3.5 text-blue-400" />
+                </button>
+                <button 
+                  onClick={() => { handleSyncClipboard(); setRightClickMenuPos(null); }}
+                  className="w-full text-right px-3 py-1.5 hover:bg-slate-800 flex items-center justify-between"
+                >
+                  <span>{isRtl ? 'پیست از کلیپ‌بورد موبایل (Paste)' : 'Paste from Mobile'}</span>
+                  <Copy className="w-3.5 h-3.5 text-emerald-400" />
+                </button>
+                <div className="h-px bg-slate-800 my-1"></div>
+                <button 
+                  onClick={() => { setRightClickMenuPos(null); }}
+                  className="w-full text-right px-3 py-1.5 hover:bg-slate-800 text-slate-400 flex items-center justify-between"
+                >
+                  <span>{isRtl ? 'بستن منو' : 'Close Menu'}</span>
+                  <X className="w-3.5 h-3.5 text-slate-500" />
+                </button>
               </div>
             )}
 
@@ -742,6 +873,19 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
           className={`absolute inset-0 w-full h-full pointer-events-${whiteboardActive ? 'auto' : 'none'} z-20`}
         />
 
+        {/* TOUCH RIPPLE VISUAL FEEDBACK */}
+        {touchFeedback && (
+          <div 
+            className={`absolute pointer-events-none rounded-full animate-ping z-40 ${
+              touchFeedback.type === 'right' ? 'w-12 h-12 bg-amber-500/60 border-2 border-amber-300' : 'w-8 h-8 bg-sky-500/60 border border-white'
+            }`}
+            style={{ 
+              left: `${touchFeedback.x - (touchFeedback.type === 'right' ? 24 : 16)}px`, 
+              top: `${touchFeedback.y - (touchFeedback.type === 'right' ? 24 : 16)}px` 
+            }}
+          />
+        )}
+
         {/* SIMULATED / REMOTE MOUSE CURSOR */}
         <div 
           className="absolute pointer-events-none z-30 transition-transform duration-75"
@@ -783,14 +927,13 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
           {/* Left & Right Click buttons */}
           <div className="grid grid-cols-2 gap-2">
             <button
-              onMouseDown={() => setIsClicking(true)}
-              onMouseUp={() => setIsClicking(false)}
+              onClick={() => triggerLeftClick(mousePos.x, mousePos.y)}
               className="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold border border-slate-700 active:bg-red-600 transition-colors"
             >
               {isRtl ? 'کلیک چپ (Left)' : 'Left Click'}
             </button>
             <button
-              onClick={() => alert(isRtl ? 'منوی راست کلیک باز شد.' : 'Right click triggered.')}
+              onClick={() => triggerRightClick(mousePos.x, mousePos.y)}
               className="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold border border-slate-700 active:bg-red-600 transition-colors"
             >
               {isRtl ? 'کلیک راست (Right)' : 'Right Click'}
@@ -799,24 +942,83 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
         </div>
       )}
 
-      {/* MOBILE KEYBOARD TOOLBAR WITH SPECIAL KEYS */}
+      {/* MOBILE KEYBOARD TOOLBAR WITH SPECIAL KEYS & REAL TEXT INPUT */}
       {mobileKeyboardVisible && (
-        <div className="bg-[#141622] border-t border-slate-800 p-2 z-40 overflow-x-auto flex items-center gap-1.5 text-xs select-none">
-          {['Esc', 'Tab', 'Ctrl', 'Alt', 'Shift', 'Win', 'F1', 'F5', 'F12', 'Del', 'Enter', '▲', '▼', '◄', '►'].map((k) => (
+        <div className="bg-[#141622] border-t border-slate-800 p-2 z-40 select-none space-y-2 animate-in slide-in-from-bottom-5 duration-150">
+          {/* Quick typing box for mobile virtual keyboard */}
+          <form onSubmit={handleSendMobileText} className="flex items-center gap-2">
+            <input 
+              type="text"
+              value={mobileTextInput}
+              onChange={(e) => setMobileTextInput(e.target.value)}
+              placeholder={isRtl ? 'تایپ مستقیم متن در کامپیوتر مقصد...' : 'Type text to send directly to remote machine...'}
+              className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-red-500"
+            />
             <button
-              key={k}
-              onClick={() => alert(`Key ${k} sent`)}
-              className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 active:bg-red-600 font-mono font-bold border border-slate-700 text-xs whitespace-nowrap shadow-sm"
+              type="submit"
+              className="bg-red-600 hover:bg-red-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 shadow"
             >
-              {k}
+              {isRtl ? 'ارسال' : 'Send'}
             </button>
-          ))}
-          <button
-            onClick={() => setMobileKeyboardVisible(false)}
-            className="px-2 py-2 rounded-lg bg-slate-900 text-slate-400 hover:text-white"
-          >
-            <X className="w-4 h-4" />
-          </button>
+            <button
+              type="button"
+              onClick={() => setMobileKeyboardVisible(false)}
+              className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white shrink-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </form>
+
+          {/* Functional Modifier Keys & PC Controls */}
+          <div className="overflow-x-auto flex items-center gap-1.5 text-xs pb-0.5">
+            {/* Sticky modifier keys */}
+            <button
+              type="button"
+              onClick={() => toggleModifier('ctrl')}
+              className={`px-2.5 py-1.5 rounded-lg font-mono font-bold text-[11px] border transition-colors ${
+                activeModifiers.ctrl ? 'bg-red-600 text-white border-red-500' : 'bg-slate-800 text-slate-300 border-slate-700'
+              }`}
+            >
+              Ctrl
+            </button>
+            <button
+              type="button"
+              onClick={() => toggleModifier('alt')}
+              className={`px-2.5 py-1.5 rounded-lg font-mono font-bold text-[11px] border transition-colors ${
+                activeModifiers.alt ? 'bg-red-600 text-white border-red-500' : 'bg-slate-800 text-slate-300 border-slate-700'
+              }`}
+            >
+              Alt
+            </button>
+            <button
+              type="button"
+              onClick={() => toggleModifier('shift')}
+              className={`px-2.5 py-1.5 rounded-lg font-mono font-bold text-[11px] border transition-colors ${
+                activeModifiers.shift ? 'bg-red-600 text-white border-red-500' : 'bg-slate-800 text-slate-300 border-slate-700'
+              }`}
+            >
+              Shift
+            </button>
+            <button
+              type="button"
+              onClick={() => toggleModifier('win')}
+              className={`px-2.5 py-1.5 rounded-lg font-mono font-bold text-[11px] border transition-colors ${
+                activeModifiers.win ? 'bg-red-600 text-white border-red-500' : 'bg-slate-800 text-slate-300 border-slate-700'
+              }`}
+            >
+              Win
+            </button>
+
+            {['Esc', 'Tab', 'F1', 'F5', 'F12', 'Del', 'Enter', '▲', '▼', '◄', '►'].map((k) => (
+              <button
+                key={k}
+                type="button"
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 active:bg-red-600 font-mono font-bold border border-slate-700 text-[11px] whitespace-nowrap shadow-sm shrink-0"
+              >
+                {k}
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>
