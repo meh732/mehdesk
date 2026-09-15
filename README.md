@@ -2,10 +2,10 @@
 
 <div align="center">
 
-![meh desk Logo](https://raw.githubusercontent.com/meh732/mehdesk/main/public/pwa-192x192.png)
+<img src="https://raw.githubusercontent.com/meh732/mehdesk/main/public/icon.svg" width="140" height="140" alt="meh desk Official Logo" style="border-radius: 28px;" />
 
-### سیستم ریموت دسکتاپ، اشتراک امن صفحه و مدیریت ناوگان سیستم‌ها
-### Enterprise Self-Hosted WebRTC Remote Desktop & Fleet Management Suite
+<h2>meh desk — سیستم ریموت دسکتاپ و مدیریت ناوگان ابری</h2>
+<p><strong>Next-Gen Ultra Low Latency WebRTC Remote Desktop & Fleet Management</strong></p>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/Node.js-20%20LTS-brightgreen.svg)](https://nodejs.org)
