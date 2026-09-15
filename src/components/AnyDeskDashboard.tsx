@@ -171,14 +171,14 @@ export const AnyDeskDashboard: React.FC<AnyDeskDashboardProps> = ({
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
                 <span>{isRtl ? 'این میز کار (سیستم شما)' : 'This Desk (Your Machine)'}</span>
               </div>
-              <span className="text-[11px] bg-red-600/20 text-red-400 border border-red-500/30 font-bold px-2 py-0.5 rounded">
-                AnyDesk v8.1
+              <span className="text-[11px] bg-red-600/20 text-red-400 border border-red-500/30 font-bold px-2 py-0.5 rounded font-mono">
+                meh desk v9.0
               </span>
             </div>
 
             <div>
               <span className="text-[11px] text-slate-400 block mb-1">
-                {isRtl ? 'آدرس اختصاصی شما برای اتصال همکاران:' : 'Your 9-Digit AnyDesk Address:'}
+                {isRtl ? 'آدرس اختصاصی شما برای اتصال همکاران:' : 'Your 9-Digit meh desk Address:'}
               </span>
               <div className="bg-[#11131a] border border-slate-800 rounded-xl p-3 flex items-center justify-between">
                 <div className="space-y-0.5">

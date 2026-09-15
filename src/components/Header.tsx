@@ -13,6 +13,7 @@ import {
   ShieldAlert,
   Bot
 } from 'lucide-react';
+import { MehLogo } from './MehLogo';
 import { PWAInstallButton } from './PWAInstallButton';
 
 interface HeaderProps {
@@ -50,8 +51,8 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={() => setActiveTab('dashboard')}
           className="flex items-center gap-2.5 cursor-pointer group"
         >
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-red-600 via-rose-500 to-amber-500 flex items-center justify-center shadow-md shadow-red-600/30 group-hover:scale-105 transition-transform">
-            <Tv className="w-5 h-5 text-white" />
+          <div className="group-hover:scale-105 transition-transform shadow-md shadow-red-600/20 rounded-xl">
+            <MehLogo className="w-9 h-9" />
           </div>
           <div>
             <div className="flex items-center gap-1.5">
