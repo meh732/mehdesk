@@ -169,6 +169,9 @@ export default function App() {
 
         setHostStream(stream);
         setIsHosting(true);
+        if (rtcRef.current) {
+          rtcRef.current.setLocalStream(stream);
+        }
         setActiveTab('host');
       } else {
         setIsHosting(true);
@@ -187,6 +190,9 @@ export default function App() {
     }
     setHostStream(null);
     setIsHosting(false);
+    if (rtcRef.current) {
+      rtcRef.current.setLocalStream(null);
+    }
   };
 
   const startSession = (device: Device) => {
@@ -198,15 +204,22 @@ export default function App() {
     } else {
       setActiveDevice(device);
       setActiveTab('session');
+      if (rtcRef.current) {
+        rtcRef.current.connectToHost(device.id);
+      }
     }
   };
 
   const handleVerifyPassword = () => {
     if (!pendingDevice) return;
     if (inputPassword === pendingDevice.unattendedPassword || inputPassword === 'admin' || inputPassword === '1234') {
+      const dev = pendingDevice;
       setPasswordModalOpen(false);
-      setActiveDevice(pendingDevice);
+      setActiveDevice(dev);
       setActiveTab('session');
+      if (rtcRef.current) {
+        rtcRef.current.connectToHost(dev.id, inputPassword);
+      }
       setPendingDevice(null);
     } else {
       setPasswordError(true);

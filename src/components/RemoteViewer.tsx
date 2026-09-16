@@ -110,9 +110,6 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
     resolution: '1920x1080'
   });
 
-  // Windows in Simulated OS
-  const [startMenuOpen, setStartMenuOpen] = useState(false);
-  const [activeWindow, setActiveWindow] = useState<'excel' | 'taskmgr' | 'explorer' | 'notepad' | null>('excel');
   const [clipboardText, setClipboardText] = useState('https://portal.company.internal/login');
   const [clipboardSynced, setClipboardSynced] = useState(false);
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
@@ -215,7 +212,7 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
     } else if (combo === 'Win+L') {
       alert(isRtl ? 'سیستم ریموت با موفقیت قفل شد (Lock Screen).' : 'Remote workstation locked.');
     } else if (combo === 'Ctrl+Shift+Esc') {
-      setActiveWindow('taskmgr');
+      alert(isRtl ? 'دستور باز کردن Task Manager ارسال شد.' : 'Task Manager command sent.');
     }
   };
 
@@ -596,269 +593,49 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
             className="w-full h-full object-contain max-h-full"
           />
         ) : (
-          /* SIMULATED HIGH-FIDELITY REMOTE DESKTOP ENVIRONMENT */
-          <div 
-            className="w-full h-full max-w-[1920px] max-h-[1080px] bg-cover bg-center relative flex flex-col justify-between overflow-hidden shadow-2xl"
-            style={{
-              backgroundImage: device.os === 'linux' 
-                ? 'radial-gradient(circle at center, #300a24 0%, #110515 100%)' 
-                : device.os === 'macos'
-                ? 'linear-gradient(135deg, #1f1c2c 0%, #928DAB 100%)'
-                : 'radial-gradient(circle at 50% 30%, #1e3a8a 0%, #091024 100%)'
-            }}
-          >
-            {/* Desktop Icons Grid */}
-            <div className="p-4 grid grid-flow-col grid-rows-6 gap-4 w-max text-xs select-none">
-              <div 
-                onClick={() => setActiveWindow('excel')}
-                className="w-20 p-2 rounded-xl hover:bg-white/10 flex flex-col items-center text-center text-white cursor-pointer group transition-colors"
-              >
-                <div className="w-10 h-10 rounded-lg bg-emerald-600 flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform">
-                  <FileSpreadsheet className="w-6 h-6 text-white" />
-                </div>
-                <span className="mt-1 text-[11px] leading-tight drop-shadow font-medium">فاکتورها و ترازنامه.xlsx</span>
+          /* REAL CONNECTION WAITING / NEGOTIATING STATE */
+          <div className="w-full h-full max-w-4xl max-h-[600px] flex flex-col items-center justify-center p-8 text-center select-none">
+            <div className="relative mb-6">
+              <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-red-500/20 to-rose-600/10 border border-red-500/30 flex items-center justify-center shadow-2xl">
+                <Monitor className="w-10 h-10 text-red-500 animate-pulse" />
               </div>
+              <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-400 animate-ping" />
+              <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 border-2 border-[#0d0f15]" />
+            </div>
 
-              <div 
-                onClick={() => setActiveWindow('taskmgr')}
-                className="w-20 p-2 rounded-xl hover:bg-white/10 flex flex-col items-center text-center text-white cursor-pointer group transition-colors"
-              >
-                <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform">
-                  <Cpu className="w-6 h-6 text-white" />
-                </div>
-                <span className="mt-1 text-[11px] leading-tight drop-shadow font-medium">Task Manager</span>
+            <h3 className="text-lg font-bold text-white mb-2">
+              {isRtl ? `در حال برقراری ارتباط با ${device.name}...` : `Connecting to ${device.name}...`}
+            </h3>
+            
+            <p className="text-xs text-slate-400 max-w-md mb-6 leading-relaxed">
+              {isRtl 
+                ? `درخواست اتصال P2P (WebRTC) ارسال شده است. به محض تایید در سیستم مقصد یا اشتراک‌گذاری مانیتور، تصویر سیستم ریموت به صورت زنده و بدون تاخیر اینجا پخش خواهد شد.`
+                : `WebRTC P2P signaling initiated. As soon as the host accepts and shares screen, live video and full input control will stream here.`
+              }
+            </p>
+
+            <div className="flex flex-wrap items-center justify-center gap-3 text-xs font-mono text-slate-300">
+              <div className="px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center gap-2">
+                <span className="text-slate-400">شناسه مقصد:</span>
+                <span className="text-red-400 font-bold">{device.id}</span>
               </div>
-
-              <div 
-                onClick={() => setActiveWindow('explorer')}
-                className="w-20 p-2 rounded-xl hover:bg-white/10 flex flex-col items-center text-center text-white cursor-pointer group transition-colors"
-              >
-                <div className="w-10 h-10 rounded-lg bg-amber-500 flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform">
-                  <HardDrive className="w-6 h-6 text-white" />
-                </div>
-                <span className="mt-1 text-[11px] leading-tight drop-shadow font-medium">درایوها (C:/ D:/)</span>
+              <div className="px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center gap-2">
+                <span className="text-slate-400">پروتکل:</span>
+                <span className="text-emerald-400 font-bold">WebRTC P2P / Direct</span>
               </div>
-
-              <div 
-                onClick={() => setActiveWindow('notepad')}
-                className="w-20 p-2 rounded-xl hover:bg-white/10 flex flex-col items-center text-center text-white cursor-pointer group transition-colors"
-              >
-                <div className="w-10 h-10 rounded-lg bg-slate-700 flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform">
-                  <FileText className="w-6 h-6 text-white" />
-                </div>
-                <span className="mt-1 text-[11px] leading-tight drop-shadow font-medium">یادداشت‌های دفتر.txt</span>
+              <div className="px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center gap-2">
+                <span className="text-slate-400">رمزنگاری:</span>
+                <span className="text-blue-400 font-bold">DTLS-SRTP 256-bit</span>
               </div>
             </div>
 
-            {/* INTERACTIVE APPLICATION WINDOW: EXCEL / ACCOUNTING SHEET */}
-            {activeWindow === 'excel' && (
-              <div className="absolute top-10 left-16 right-16 bottom-16 bg-[#1f2330] rounded-xl border border-slate-700 shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-                {/* Window Title Bar */}
-                <div className="bg-[#181b26] px-3 py-2 border-b border-slate-700 flex items-center justify-between text-xs text-white">
-                  <div className="flex items-center gap-2">
-                    <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-                    <span className="font-bold">نرم‌افزار جامع مالی و حسابداری شرکت - گزارش عملکرد شعب و دفاتر</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button onClick={() => setActiveWindow(null)} className="p-1 hover:bg-slate-700 rounded text-slate-400"><Minus className="w-3.5 h-3.5" /></button>
-                    <button className="p-1 hover:bg-slate-700 rounded text-slate-400"><Square className="w-3 h-3" /></button>
-                    <button onClick={() => setActiveWindow(null)} className="p-1 hover:bg-rose-600 rounded text-slate-400 hover:text-white"><X className="w-3.5 h-3.5" /></button>
-                  </div>
-                </div>
-
-                {/* Window Ribbon Bar */}
-                <div className="bg-[#252a3a] px-3 py-1.5 border-b border-slate-700 flex items-center gap-4 text-[11px] text-slate-300">
-                  <span className="text-emerald-400 font-bold">فایل</span>
-                  <span>صفحه اصلی</span>
-                  <span>درج فرمول</span>
-                  <span>ترازنامه</span>
-                  <span>محاسبه مالیات</span>
-                  <span>خروجی PDF</span>
-                </div>
-
-                {/* Sheet Table */}
-                <div className="flex-1 p-3 overflow-auto text-xs font-mono">
-                  <table className="w-full text-right border-collapse">
-                    <thead>
-                      <tr className="bg-slate-800 text-slate-300 border-b border-slate-700">
-                        <th className="p-2 border border-slate-700">کد سند</th>
-                        <th className="p-2 border border-slate-700">شرح حساب / دپارتمان</th>
-                        <th className="p-2 border border-slate-700">بدهکار (ریال)</th>
-                        <th className="p-2 border border-slate-700">بستانکار (ریال)</th>
-                        <th className="p-2 border border-slate-700">وضعیت تایید</th>
-                      </tr>
-                    </thead>
-                    <tbody className="text-slate-200">
-                      <tr className="hover:bg-slate-800/60 border-b border-slate-800">
-                        <td className="p-2 border border-slate-700">DOC-1403-890</td>
-                        <td className="p-2 border border-slate-700">فاکتور خرید تجهیزات شبکه و سرور تهران</td>
-                        <td className="p-2 border border-slate-700 text-emerald-400">۸۵۰,۰۰۰,۰۰۰</td>
-                        <td className="p-2 border border-slate-700">۰</td>
-                        <td className="p-2 border border-slate-700 text-emerald-400">تایید شده توسط مالی</td>
-                      </tr>
-                      <tr className="hover:bg-slate-800/60 border-b border-slate-800">
-                        <td className="p-2 border border-slate-700">DOC-1403-891</td>
-                        <td className="p-2 border border-slate-700">حقوق و دستمزد پرسنل شعبه اصفهان</td>
-                        <td className="p-2 border border-slate-700 text-emerald-400">۱,۲۴۰,۰۰۰,۰۰۰</td>
-                        <td className="p-2 border border-slate-700">۰</td>
-                        <td className="p-2 border border-slate-700 text-emerald-400">پرداخت شده</td>
-                      </tr>
-                      <tr className="hover:bg-slate-800/60 border-b border-slate-800">
-                        <td className="p-2 border border-slate-700">DOC-1403-892</td>
-                        <td className="p-2 border border-slate-700">واریزی قرارداد پشتیبانی نرم افزار</td>
-                        <td className="p-2 border border-slate-700">۰</td>
-                        <td className="p-2 border border-slate-700 text-cyan-400">۲,۱۵۰,۰۰۰,۰۰۰</td>
-                        <td className="p-2 border border-slate-700 text-emerald-400">ثبت در حساب جاری</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* INTERACTIVE APPLICATION WINDOW: TASK MANAGER */}
-            {activeWindow === 'taskmgr' && (
-              <div className="absolute top-12 left-24 w-[600px] h-[400px] bg-[#181b26] rounded-xl border border-slate-700 shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
-                <div className="bg-[#141620] px-3 py-2 border-b border-slate-700 flex items-center justify-between text-xs text-white">
-                  <div className="flex items-center gap-2">
-                    <Cpu className="w-4 h-4 text-blue-400" />
-                    <span className="font-bold">Task Manager - {device.name}</span>
-                  </div>
-                  <button onClick={() => setActiveWindow(null)} className="p-1 hover:bg-rose-600 rounded text-slate-400 hover:text-white">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                <div className="p-4 space-y-4 text-xs font-mono">
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800 space-y-1">
-                      <div className="text-slate-400 text-[11px]">پردازنده (CPU)</div>
-                      <div className="text-lg font-bold text-blue-400">18%</div>
-                      <div className="text-[10px] text-slate-500">3.80 GHz • 12 Cores</div>
-                    </div>
-                    <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800 space-y-1">
-                      <div className="text-slate-400 text-[11px]">حافظه رم (RAM)</div>
-                      <div className="text-lg font-bold text-purple-400">9.4 / 32 GB (29%)</div>
-                      <div className="text-[10px] text-slate-500">Speed: 3200 MHz</div>
-                    </div>
-                    <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800 space-y-1">
-                      <div className="text-slate-400 text-[11px]">کارت شبکه (Network)</div>
-                      <div className="text-lg font-bold text-emerald-400">1.2 Gbps</div>
-                      <div className="text-[10px] text-slate-500">Send: 4.2 MB/s</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* INTERACTIVE APPLICATION WINDOW: NOTEPAD */}
-            {activeWindow === 'notepad' && (
-              <div className="absolute top-16 right-24 w-[450px] h-[320px] bg-[#1a1d28] rounded-xl border border-slate-700 shadow-2xl flex flex-col overflow-hidden">
-                <div className="bg-[#141620] px-3 py-2 border-b border-slate-700 flex items-center justify-between text-xs text-white">
-                  <div className="flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-slate-400" />
-                    <span className="font-bold">یادداشت‌های دفتر.txt - Notepad</span>
-                  </div>
-                  <button onClick={() => setActiveWindow(null)} className="p-1 hover:bg-rose-600 rounded text-slate-400 hover:text-white">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                <textarea
-                  defaultValue={`جلسه هماهنگی شعب سراسر کشور:
-۱. بررسی فاکتورهای ارسالی شعبه اصفهان و تبریز
-۲. ارتقای رم سرور دیتابیس در تعطیلات آخر هفته
-۳. تنظیم گذرواژه دسترسی بدون نظارت (Unattended Access) برای مدیران
-۴. آدرس پرتال داخلی: https://corp-portal.local`}
-                  className="flex-1 bg-slate-900 p-3 text-xs text-slate-200 font-mono resize-none focus:outline-none"
-                />
-              </div>
-            )}
-
-            {/* REALISTIC RIGHT-CLICK CONTEXT MENU */}
-            {rightClickMenuPos && (
-              <div 
-                className="absolute z-40 bg-[#1a1d28]/95 border border-slate-700 rounded-xl shadow-2xl py-1 text-xs text-slate-200 w-48 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100"
-                style={{ left: `${rightClickMenuPos.x}px`, top: `${rightClickMenuPos.y}px` }}
+            <div className="mt-8 flex items-center gap-3">
+              <button
+                onClick={onDisconnect}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-rose-900/50 text-slate-300 hover:text-rose-200 border border-slate-700 hover:border-rose-500/50 text-xs transition-colors"
               >
-                <div className="px-3 py-1 text-[10px] font-bold text-slate-400 border-b border-slate-800">
-                  {isRtl ? 'منوی کلیک راست سیستم مقصد' : 'Remote Context Menu'}
-                </div>
-                <button 
-                  onClick={() => { setActiveWindow('notepad'); setRightClickMenuPos(null); }}
-                  className="w-full text-right px-3 py-1.5 hover:bg-slate-800 flex items-center justify-between"
-                >
-                  <span>{isRtl ? 'باز کردن یادداشت جدید' : 'New Text Note'}</span>
-                  <FileText className="w-3.5 h-3.5 text-slate-400" />
-                </button>
-                <button 
-                  onClick={() => { setActiveWindow('taskmgr'); setRightClickMenuPos(null); }}
-                  className="w-full text-right px-3 py-1.5 hover:bg-slate-800 flex items-center justify-between"
-                >
-                  <span>{isRtl ? 'مدیریت وظایف (Task Manager)' : 'Task Manager'}</span>
-                  <Cpu className="w-3.5 h-3.5 text-blue-400" />
-                </button>
-                <button 
-                  onClick={() => { handleSyncClipboard(); setRightClickMenuPos(null); }}
-                  className="w-full text-right px-3 py-1.5 hover:bg-slate-800 flex items-center justify-between"
-                >
-                  <span>{isRtl ? 'پیست از کلیپ‌بورد موبایل (Paste)' : 'Paste from Mobile'}</span>
-                  <Copy className="w-3.5 h-3.5 text-emerald-400" />
-                </button>
-                <div className="h-px bg-slate-800 my-1"></div>
-                <button 
-                  onClick={() => { setRightClickMenuPos(null); }}
-                  className="w-full text-right px-3 py-1.5 hover:bg-slate-800 text-slate-400 flex items-center justify-between"
-                >
-                  <span>{isRtl ? 'بستن منو' : 'Close Menu'}</span>
-                  <X className="w-3.5 h-3.5 text-slate-500" />
-                </button>
-              </div>
-            )}
-
-            {/* BOTTOM WINDOWS TASKBAR */}
-            <div className="h-12 bg-[#12141c]/90 backdrop-blur-md border-t border-slate-800/80 px-3 flex items-center justify-between text-xs text-slate-200 z-20">
-              {/* Start button & Pinned apps */}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setStartMenuOpen(!startMenuOpen)}
-                  className="p-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white shadow transition-colors"
-                >
-                  <Tv className="w-4 h-4" />
-                </button>
-
-                <div className="flex items-center gap-1">
-                  <button 
-                    onClick={() => setActiveWindow('excel')}
-                    className={`p-2 rounded-lg transition-colors ${activeWindow === 'excel' ? 'bg-slate-700/80' : 'hover:bg-slate-800'}`}
-                  >
-                    <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-                  </button>
-                  <button 
-                    onClick={() => setActiveWindow('taskmgr')}
-                    className={`p-2 rounded-lg transition-colors ${activeWindow === 'taskmgr' ? 'bg-slate-700/80' : 'hover:bg-slate-800'}`}
-                  >
-                    <Cpu className="w-4 h-4 text-blue-400" />
-                  </button>
-                  <button 
-                    onClick={() => setActiveWindow('notepad')}
-                    className={`p-2 rounded-lg transition-colors ${activeWindow === 'notepad' ? 'bg-slate-700/80' : 'hover:bg-slate-800'}`}
-                  >
-                    <FileText className="w-4 h-4 text-slate-400" />
-                  </button>
-                </div>
-              </div>
-
-              {/* System Tray Clock & Volume */}
-              <div className="flex items-center gap-3 text-[11px] font-mono text-slate-300">
-                <div className="flex items-center gap-1.5 bg-slate-800/80 px-2 py-1 rounded">
-                  <Volume2 className="w-3.5 h-3.5 text-slate-400" />
-                  <span>{systemVolume}%</span>
-                </div>
-                <div className="text-right">
-                  <div>11:45 AM</div>
-                  <div className="text-[10px] text-slate-400">1403/06/25</div>
-                </div>
-              </div>
+                {isRtl ? 'لغو و قطع اتصال' : 'Cancel Connection'}
+              </button>
             </div>
           </div>
         )}

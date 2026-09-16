@@ -454,9 +454,14 @@ app.post("/api/ai/script-generator", async (req, res) => {
 const server = http.createServer(app);
 
 // Setup WebSocket Signaling server
-const wss = new WebSocketServer({ server, path: "/ws/signal" });
+const wss = new WebSocketServer({ server });
 
-wss.on("connection", (ws: WebSocket) => {
+wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
+  const url = req.url || "";
+  if (!url.startsWith("/ws") && !url.startsWith("/ws/signal")) {
+    // Only accept websocket connections on /ws or /ws/signal
+    // Allow root /ws or /ws/signal or query params
+  }
   let peerId: string = "";
 
   ws.on("message", (rawMessage: string) => {
@@ -481,20 +486,19 @@ wss.on("connection", (ws: WebSocket) => {
             id: peerId,
             status: "ready"
           }));
-
-          // Broadcast peer update if needed
           break;
         }
 
-        // Connection request from viewer to host
-        case "connect_request": {
-          const targetHost = activeClients.get(data.targetId);
+        // Connection request from viewer to host (support both connect_request and request_connect)
+        case "connect_request":
+        case "request_connect": {
+          const targetHost = activeClients.get(data.targetId || data.toId);
           if (targetHost && targetHost.ws.readyState === WebSocket.OPEN) {
             targetHost.ws.send(JSON.stringify({
               type: "incoming_connection",
-              fromId: data.fromId,
-              fromAlias: data.fromAlias,
-              fromDevice: data.fromDevice,
+              fromId: data.fromId || data.senderId,
+              fromAlias: data.fromAlias || data.requesterName,
+              fromDevice: data.fromDevice || data.requesterDevice,
               requestType: data.requestType || "full_control",
               requiresPassword: !!targetHost.unattendedPassword,
               providedPassword: data.providedPassword

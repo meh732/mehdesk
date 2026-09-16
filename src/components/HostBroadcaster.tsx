@@ -112,15 +112,6 @@ export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
     setIncomingRequest(null);
   };
 
-  const simulateIncomingConnection = () => {
-    setIncomingRequest({
-      id: '882 104 319',
-      name: 'گوشی موبایل مهندس حسینی (Samsung Galaxy S24)',
-      device: 'Android 14 (Mobile AnyDesk App)',
-      ip: '192.168.1.185'
-    });
-  };
-
   return (
     <div className="max-w-6xl mx-auto p-4 sm:p-6 space-y-6">
       {/* Screen Share Permission Consent Modal */}
@@ -308,15 +299,6 @@ export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
                   <span>{isRtl ? 'پرده سیاه خصوصی' : 'Privacy Screen'}</span>
                 </button>
               </div>
-
-              {/* Demo Trigger Button for incoming connection simulation */}
-              <button
-                onClick={simulateIncomingConnection}
-                className="text-[11px] bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
-              >
-                <Smartphone className="w-3.5 h-3.5 text-amber-400" />
-                <span>{isRtl ? 'تست دریافت اتصال موبایل' : 'Simulate Incoming Mobile'}</span>
-              </button>
             </div>
           </div>
         </div>

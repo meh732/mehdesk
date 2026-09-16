@@ -127,8 +127,15 @@ export class WebRtcClient {
 
   private async handleSignalingMessage(msg: any) {
     switch (msg.type) {
+      case 'incoming_connection':
       case 'incoming_connection_request': {
-        this.onIncomingRequestCallback?.(msg);
+        this.onIncomingRequestCallback?.({
+          fromId: msg.fromId || msg.senderId,
+          requesterName: msg.fromAlias || msg.requesterName || `Client (${msg.fromId || msg.senderId})`,
+          requesterDevice: msg.fromDevice || msg.requesterDevice || 'Remote Client',
+          requiresPassword: msg.requiresPassword,
+          providedPassword: msg.providedPassword
+        });
         break;
       }
 
@@ -138,8 +145,13 @@ export class WebRtcClient {
           // Start WebRTC negotiation as Viewer
           await this.createOffer();
         } else {
-          this.onConnectionStatusCallback?.('rejected', msg.reason);
+          this.onConnectionStatusCallback?.('rejected', msg.reason || 'درخواست اتصال توسط کاربر رد شد');
         }
+        break;
+      }
+
+      case 'connect_error': {
+        this.onConnectionStatusCallback?.('rejected', msg.message);
         break;
       }
 
