@@ -24,6 +24,7 @@ function getAI() {
 // In-memory registry of active peer rooms and remote desks
 interface PeerClient {
   id: string;
+  rawId?: string;
   ws: WebSocket;
   alias?: string;
   isHost?: boolean;
@@ -450,29 +451,63 @@ app.post("/api/ai/script-generator", async (req, res) => {
   }
 });
 
-// Helper to find client by ID (with or without spaces) or by Alias
+// Universal ID normalizer: converts Persian & Arabic numerals to ASCII and strips all spaces/formatting
+export function normalizeDeskId(id: string | null | undefined): string {
+  if (!id) return "";
+  return id
+    .toString()
+    .trim()
+    .replace(/[\u06F0-\u06F9]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 1728)) // Persian ۰-۹
+    .replace(/[\u0660-\u0669]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 1584)) // Arabic ٠-٩
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .toLowerCase();
+}
+
+// Helper to find client by ID (normalized) or by Alias
 function findActiveClient(query: string | undefined): any {
   if (!query) return null;
-  const clean = query.toString().replace(/\s+/g, "").toLowerCase();
+  const clean = normalizeDeskId(query);
+  if (!clean) return null;
 
+  // 1. Direct normalized ID lookup
   if (activeClients.has(clean)) {
-    return activeClients.get(clean);
+    const c = activeClients.get(clean);
+    if (c && c.ws && c.ws.readyState === WebSocket.OPEN) {
+      return c;
+    }
   }
 
+  // 2. Linear scan with normalization for Alias or formatted IDs
   for (const client of activeClients.values()) {
-    const cId = (client.id || "").toString().replace(/\s+/g, "").toLowerCase();
-    const cAlias = (client.alias || "").toString().replace(/\s+/g, "").toLowerCase();
-    if (cId === clean || cAlias === clean || cAlias.includes(clean)) {
+    if (!client.ws || client.ws.readyState !== WebSocket.OPEN) continue;
+    const cId = normalizeDeskId(client.id);
+    const cAlias = normalizeDeskId(client.alias);
+    if (cId === clean || cAlias === clean || (cAlias && cAlias.includes(clean))) {
       return client;
     }
   }
   return null;
 }
 
+// API endpoint to check if an ID is currently active & online on the server
+app.get("/api/check-client/:id", (req, res) => {
+  const queryId = req.params.id;
+  const client = findActiveClient(queryId);
+  res.json({
+    success: true,
+    query: queryId,
+    normalized: normalizeDeskId(queryId),
+    online: !!client,
+    alias: client?.alias || null,
+    isHost: !!client?.isHost
+  });
+});
+
 // API endpoint to get list of currently connected online devices
 app.get("/api/online-devices", (req, res) => {
   const list = Array.from(activeClients.values()).map(c => ({
     id: c.id,
+    rawId: c.rawId,
     alias: c.alias,
     isHost: c.isHost,
     deviceInfo: c.deviceInfo
@@ -496,14 +531,20 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
       switch (data.type) {
         // Register client ID (Host or Client)
         case "register": {
-          const cleanId = (data.id || "").toString().replace(/\s+/g, "");
+          const cleanId = normalizeDeskId(data.id);
+          if (!cleanId) return;
+
           if (peerId && peerId !== cleanId) {
-            activeClients.delete(peerId);
+            const oldClient = activeClients.get(peerId);
+            if (oldClient && oldClient.ws === ws) {
+              activeClients.delete(peerId);
+            }
           }
           peerId = cleanId;
 
           activeClients.set(peerId, {
             id: peerId,
+            rawId: data.id,
             ws,
             alias: data.alias || `${peerId}@desk`,
             isHost: !!data.isHost,
@@ -511,7 +552,7 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
             deviceInfo: data.deviceInfo
           });
 
-          console.log(`[WS] Client Registered: ${peerId} (${data.alias || 'no-alias'}), Total Active: ${activeClients.size}`);
+          console.log(`[WS] Client Registered: ${peerId} (raw: ${data.id}, alias: ${data.alias || 'no-alias'}), Total Active: ${activeClients.size}`);
 
           ws.send(JSON.stringify({
             type: "registered",
@@ -526,23 +567,26 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
         case "request_connect": {
           const targetQuery = data.targetId || data.toId;
           const targetHost = findActiveClient(targetQuery);
+          const fromNormalized = normalizeDeskId(data.fromId || data.senderId || peerId);
 
-          console.log(`[WS] Connection request from ${data.fromId || data.senderId} to ${targetQuery} -> Found: ${!!targetHost}`);
+          console.log(`[WS] Connection request from '${fromNormalized}' to '${targetQuery}' -> Found: ${!!targetHost}`);
 
           if (targetHost && targetHost.ws.readyState === WebSocket.OPEN) {
             targetHost.ws.send(JSON.stringify({
               type: "incoming_connection",
-              fromId: (data.fromId || data.senderId || peerId || "").toString().replace(/\s+/g, ""),
-              fromAlias: data.fromAlias || data.requesterName || `Client (${data.fromId})`,
+              fromId: fromNormalized,
+              rawFromId: data.fromId || data.senderId || peerId,
+              fromAlias: data.fromAlias || data.requesterName || `Client (${fromNormalized})`,
               fromDevice: data.fromDevice || data.requesterDevice || "Remote Client",
               requestType: data.requestType || "full_control",
               requiresPassword: !!targetHost.unattendedPassword,
               providedPassword: data.providedPassword
             }));
           } else {
+            console.warn(`[WS] Target '${targetQuery}' (normalized: '${normalizeDeskId(targetQuery)}') not found among ${activeClients.size} active clients.`);
             ws.send(JSON.stringify({
               type: "connect_error",
-              message: "کامپیوتر مقصد هم‌اکنون آنلاین نیست یا شناسه اشتباه وارد شده است."
+              message: `کامپیوتر مقصد با شناسه ${targetQuery} هم‌اکنون در سرور آنلاین نیست یا شناسه اشتباه است.`
             }));
           }
           break;
@@ -552,8 +596,9 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
         case "connect_response": {
           const targetQuery = data.toId;
           const viewer = findActiveClient(targetQuery);
+          const fromHostNormalized = normalizeDeskId(data.hostId || peerId);
           
-          console.log(`[WS] Connect response for ${targetQuery}: accepted=${data.accepted}`);
+          console.log(`[WS] Connect response from host '${fromHostNormalized}' for viewer '${targetQuery}': accepted=${data.accepted}`);
 
           if (viewer && viewer.ws.readyState === WebSocket.OPEN) {
             viewer.ws.send(JSON.stringify({
@@ -564,8 +609,8 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
             }));
 
             if (data.accepted) {
-              const hostId = (data.hostId || peerId).toString().replace(/\s+/g, "");
-              const viewerId = (data.toId).toString().replace(/\s+/g, "");
+              const hostId = fromHostNormalized;
+              const viewerId = normalizeDeskId(data.toId);
               if (!rooms.has(hostId)) {
                 rooms.set(hostId, new Set());
               }
@@ -575,7 +620,7 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
           break;
         }
 
-        // WebRTC Signaling: Offer, Answer, ICE candidate forwarding
+        // WebRTC Signaling: Offer, Answer, ICE candidate, remote input & data forwarding
         case "signal_offer":
         case "signal_answer":
         case "signal_ice":
@@ -590,7 +635,7 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
           if (target && target.ws.readyState === WebSocket.OPEN) {
             target.ws.send(JSON.stringify({
               ...data,
-              senderId: (data.senderId || peerId || "").toString().replace(/\s+/g, "")
+              senderId: normalizeDeskId(data.senderId || peerId)
             }));
           }
           break;
@@ -608,20 +653,27 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
 
   ws.on("close", () => {
     if (peerId) {
-      console.log(`[WS] Client disconnected: ${peerId}`);
-      activeClients.delete(peerId);
-      rooms.delete(peerId);
-      for (const [hostId, viewers] of rooms.entries()) {
-        if (viewers.has(peerId)) {
-          viewers.delete(peerId);
-          const host = findActiveClient(hostId);
-          if (host && host.ws.readyState === WebSocket.OPEN) {
-            host.ws.send(JSON.stringify({
-              type: "viewer_disconnected",
-              viewerId: peerId
-            }));
+      console.log(`[WS] Socket closed event for: ${peerId}`);
+      const current = activeClients.get(peerId);
+      // PRESERVE NEW ACTIVE CONNECTION: only delete if the closed socket matches the stored one
+      if (current && current.ws === ws) {
+        console.log(`[WS] Removing active client entry: ${peerId}`);
+        activeClients.delete(peerId);
+        rooms.delete(peerId);
+        for (const [hostId, viewers] of rooms.entries()) {
+          if (viewers.has(peerId)) {
+            viewers.delete(peerId);
+            const host = findActiveClient(hostId);
+            if (host && host.ws.readyState === WebSocket.OPEN) {
+              host.ws.send(JSON.stringify({
+                type: "viewer_disconnected",
+                viewerId: peerId
+              }));
+            }
           }
         }
+      } else {
+        console.log(`[WS] Stale socket closed for: ${peerId}, active client preserved`);
       }
     }
   });

@@ -77,34 +77,92 @@ export default function App() {
   });
 
   const [signalingStatus, setSignalingStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connecting');
+  const [sessionStatus, setSessionStatus] = useState<string>('idle');
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [remoteCursor, setRemoteCursor] = useState<{ x: number; y: number; click?: string } | null>(null);
+
+  // Play audio chime alert when incoming connection arrives
+  const playIncomingChimeAlert = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+      const playTone = (freq: number, start: number, dur: number) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, now + start);
+        gain.gain.setValueAtTime(0.3, now + start);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + start + dur);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + start);
+        osc.stop(now + start + dur);
+      };
+      playTone(659.25, 0, 0.22);
+      playTone(880.00, 0.25, 0.4);
+    } catch (e) {
+      console.warn('Audio chime warning:', e);
+    }
+  };
 
   // Initialize WebRtc Signaling Client
   useEffect(() => {
     const rtc = new WebRtcClient(localId);
     rtcRef.current = rtc;
 
-    rtc.onConnectionStatus((status) => {
+    rtc.onConnectionStatus((status, details) => {
       if (status === 'connected_to_signaling') {
         setSignalingStatus('connected');
       } else if (status === 'disconnected_from_signaling') {
         setSignalingStatus('disconnected');
+      } else if (status === 'accepted') {
+        setSessionStatus('connected');
+        setSessionError(null);
+      } else if (status === 'rejected') {
+        setSessionStatus('rejected');
+        setSessionError(typeof details === 'string' ? details : 'درخواست اتصال توسط کاربر سیستم مقصد رد شد.');
+      } else if (status === 'error') {
+        setSessionStatus('error');
+        setSessionError(typeof details === 'string' ? details : 'خطا در برقراری ارتباط با سیستم مقصد.');
       }
     });
 
     rtc.onRemoteStream((stream) => {
       console.log('Received real remote stream track!');
       setRemoteStream(stream);
+      setSessionStatus('connected');
     });
 
     rtc.onIncomingRequest((req) => {
       console.log('Received incoming connection request:', req);
+      playIncomingChimeAlert();
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        new Notification('مه دسک - درخواست اتصال ریموت جدید', {
+          body: `سیستم ${req.requesterName} (${req.fromId}) درخواست دسترسی ارسال کرده است.`,
+        });
+      }
       setIncomingRequest(req);
+    });
+
+    rtc.onRemoteInput((input) => {
+      if (permissions.allowMouseKeyboard && input) {
+        if (input.type === 'mousemove') {
+          setRemoteCursor({ x: input.x, y: input.y });
+        } else if (input.type === 'click' || input.type === 'mousedown') {
+          setRemoteCursor({ x: input.x, y: input.y, click: input.button || 'left' });
+          setTimeout(() => {
+            setRemoteCursor(prev => prev ? { ...prev, click: undefined } : null);
+          }, 350);
+        }
+      }
     });
 
     return () => {
       rtc.disconnect();
     };
-  }, [localId]);
+  }, [localId, permissions.allowMouseKeyboard]);
 
   const handleAcceptIncomingRequest = async (customPermissions?: SessionPermissions) => {
     if (!incomingRequest || !rtcRef.current) return;
@@ -373,6 +431,7 @@ export default function App() {
             setPermissions={setPermissions}
             isRtl={isRtl}
             openQrModal={() => setQrModalOpen(true)}
+            remoteCursor={remoteCursor}
             incomingRequest={incomingRequest}
             onAcceptIncomingRequest={handleAcceptIncomingRequest}
             onRejectIncomingRequest={handleRejectIncomingRequest}
@@ -411,6 +470,8 @@ export default function App() {
               }
               setRemoteStream(null);
               setActiveDevice(null);
+              setSessionStatus('idle');
+              setSessionError(null);
               setActiveTab('dashboard');
             }}
             onOpenFileTransfer={() => setActiveTab('file-manager')}
@@ -418,6 +479,13 @@ export default function App() {
             onOpenAiHelp={() => setAiDrawerOpen(true)}
             isRtl={isRtl}
             realStream={remoteStream || hostStream}
+            onSendInput={(eventData) => {
+              if (rtcRef.current) {
+                rtcRef.current.sendInputEvent(eventData);
+              }
+            }}
+            sessionStatus={sessionStatus}
+            sessionError={sessionError}
           />
         )}
       </main>

@@ -296,7 +296,23 @@ setup_domain_ssl() {
     rm -f /etc/nginx/sites-enabled/* /etc/nginx/conf.d/default.conf /etc/nginx/sites-available/default 2>/dev/null || true
     mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/conf.d
 
-    cat << NGINX_CONF > /etc/nginx/sites-available/mehdesk.conf
+    # Open firewall ports for HTTP & HTTPS
+    if command -v ufw >/dev/null 2>&1; then
+        ufw allow 80/tcp || true
+        ufw allow 443/tcp || true
+    elif command -v firewall-cmd >/dev/null 2>&1; then
+        firewall-cmd --permanent --add-service=http || true
+        firewall-cmd --permanent --add-service=https || true
+        firewall-cmd --reload || true
+    fi
+
+    local cert_file="/etc/letsencrypt/live/${target_domain}/fullchain.pem"
+    local key_file="/etc/letsencrypt/live/${target_domain}/privkey.pem"
+
+    # If certificates do not exist yet, attempt to acquire via certbot
+    if [ ! -f "$cert_file" ] && command -v certbot >/dev/null 2>&1; then
+        echo -e "${CYAN}[SSL] Initializing Port 80 for Let's Encrypt automated challenge...${NC}"
+        cat << NGINX_CONF > /etc/nginx/sites-available/mehdesk.conf
 map \$http_upgrade \$connection_upgrade {
     default upgrade;
     '' close;
@@ -336,40 +352,135 @@ server {
     }
 }
 NGINX_CONF
+        ln -sf /etc/nginx/sites-available/mehdesk.conf /etc/nginx/sites-enabled/mehdesk.conf
+        cp -f /etc/nginx/sites-available/mehdesk.conf /etc/nginx/conf.d/mehdesk.conf 2>/dev/null || true
+        systemctl restart nginx 2>/dev/null || true
+
+        echo -e "${CYAN}[SSL] Requesting Let's Encrypt certificate for ${target_domain}...${NC}"
+        certbot --nginx -d "${target_domain}" --non-interactive --agree-tos --register-unsafely-without-email --redirect --keep-until-expiring 2>/dev/null || true
+    fi
+
+    # Check if certificate exists (either already present or just generated)
+    if [ -f "$cert_file" ] && [ -f "$key_file" ]; then
+        echo -e "${GREEN}[OK] Verified SSL certificate found for ${target_domain}. Writing full HTTPS + WSS config...${NC}"
+        cat << NGINX_CONF > /etc/nginx/sites-available/mehdesk.conf
+map \$http_upgrade \$connection_upgrade {
+    default upgrade;
+    '' close;
+}
+
+# Redirect HTTP to HTTPS
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${target_domain};
+    return 301 https://\$host\$request_uri;
+}
+
+# Production HTTPS and WebSocket Server
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name ${target_domain};
+
+    ssl_certificate ${cert_file};
+    ssl_certificate_key ${key_file};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    # Secure WebSocket Signaling Gateway (/ws)
+    location /ws {
+        proxy_pass http://127.0.0.1:${current_port};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$connection_upgrade;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+        proxy_buffering off;
+    }
+
+    # Web Client & API
+    location / {
+        proxy_pass http://127.0.0.1:${current_port};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$connection_upgrade;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+        client_max_body_size 500M;
+    }
+}
+NGINX_CONF
+    else
+        echo -e "${YELLOW}[WARN] SSL certificate not found. Configuring HTTP & WebSocket on Port 80...${NC}"
+        cat << NGINX_CONF > /etc/nginx/sites-available/mehdesk.conf
+map \$http_upgrade \$connection_upgrade {
+    default upgrade;
+    '' close;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${target_domain};
+
+    location /ws {
+        proxy_pass http://127.0.0.1:${current_port};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$connection_upgrade;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+        proxy_buffering off;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:${current_port};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$connection_upgrade;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+        client_max_body_size 500M;
+    }
+}
+NGINX_CONF
+    fi
 
     ln -sf /etc/nginx/sites-available/mehdesk.conf /etc/nginx/sites-enabled/mehdesk.conf
     cp -f /etc/nginx/sites-available/mehdesk.conf /etc/nginx/conf.d/mehdesk.conf 2>/dev/null || true
 
-    # Open firewall ports for HTTP & HTTPS
-    if command -v ufw >/dev/null 2>&1; then
-        ufw allow 80/tcp || true
-        ufw allow 443/tcp || true
-    elif command -v firewall-cmd >/dev/null 2>&1; then
-        firewall-cmd --permanent --add-service=http || true
-        firewall-cmd --permanent --add-service=https || true
-        firewall-cmd --reload || true
-    fi
-
     if nginx -t >/dev/null 2>&1; then
         systemctl restart nginx || systemctl reload nginx
         systemctl enable nginx 2>/dev/null || true
-        echo -e "${GREEN}[OK] Nginx reverse proxy configured and active.${NC}"
+        echo -e "${GREEN}[OK] Nginx reverse proxy with WebSockets is active and validated.${NC}"
     else
         echo -e "${RED}[ERROR] Nginx test failed. Restarting anyway...${NC}"
         systemctl restart nginx 2>/dev/null || true
     fi
 
-    echo -e "${CYAN}[SSL] Requesting / Re-linking Let's Encrypt SSL certificate for ${target_domain}...${NC}"
-    if certbot --nginx -d "${target_domain}" --non-interactive --agree-tos --register-unsafely-without-email --redirect --keep-until-expiring; then
-        sed -i "s/DOMAIN=.*/DOMAIN=${target_domain}/" "${INSTALL_DIR}/.env"
-        systemctl reload nginx 2>/dev/null || systemctl restart nginx 2>/dev/null || true
+    if [ -f "$cert_file" ]; then
+        sed -i "s/DOMAIN=.*/DOMAIN=${target_domain}/" "${INSTALL_DIR}/.env" 2>/dev/null || true
         systemctl restart ${SERVICE_NAME} 2>/dev/null || true
         echo -e "\n${GREEN}🎉 Domain and SSL certificate configured successfully!${NC}"
         echo -e "Access URL: ${CYAN}https://${target_domain}${NC}"
-    else
-        echo -e "\n${YELLOW}[INFO] Let's Encrypt automated challenge could not complete right now.${NC}"
-        echo -e "${YELLOW}HTTP Reverse proxy is already active on http://${target_domain}${NC}"
-        echo -e "${YELLOW}Ensure DNS A-Record points to this IP and Cloudflare proxy is off, then run SSL setup again.${NC}"
     fi
 }
 

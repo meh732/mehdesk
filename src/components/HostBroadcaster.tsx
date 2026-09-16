@@ -35,6 +35,7 @@ interface HostBroadcasterProps {
   setPermissions: React.Dispatch<React.SetStateAction<SessionPermissions>>;
   isRtl: boolean;
   openQrModal: () => void;
+  remoteCursor?: { x: number; y: number; click?: string } | null;
   incomingRequest?: {
     fromId: string;
     requesterName: string;
@@ -55,6 +56,7 @@ export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
   setPermissions,
   isRtl,
   openQrModal,
+  remoteCursor,
   incomingRequest,
   onAcceptIncomingRequest,
   onRejectIncomingRequest
@@ -268,6 +270,32 @@ export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
                 <div className="absolute inset-0 bg-black/95 flex flex-col items-center justify-center text-slate-400 text-xs">
                   <EyeOff className="w-8 h-8 text-slate-600 mb-2" />
                   <span>{isRtl ? 'پرده حریم خصوصی فعال است (نمایشگر محلی خاموش است)' : 'Privacy screen active (display blanked)'}</span>
+                </div>
+              )}
+
+              {/* Real-time Remote Guest Cursor Overlay */}
+              {remoteCursor && permissions.allowMouseKeyboard && (
+                <div 
+                  className="absolute pointer-events-none z-30 transition-all duration-75"
+                  style={{
+                    left: `${Math.max(0, Math.min(100, remoteCursor.x * 100))}%`,
+                    top: `${Math.max(0, Math.min(100, remoteCursor.y * 100))}%`,
+                    transform: 'translate(-2px, -2px)'
+                  }}
+                >
+                  <div className="relative">
+                    <div className={`w-4 h-4 text-red-500 fill-white drop-shadow-md ${remoteCursor.click ? 'scale-125 transition-transform' : ''}`}>
+                      <svg viewBox="0 0 24 24" fill="currentColor" stroke="black" strokeWidth="1">
+                        <path d="M3 3l7 18 3-7 7-3L3 3z" />
+                      </svg>
+                    </div>
+                    {remoteCursor.click && (
+                      <div className="absolute -top-1 -left-1 w-6 h-6 rounded-full border-2 border-red-400 animate-ping" />
+                    )}
+                    <span className="absolute left-4 top-0 bg-red-600/90 text-white text-[9px] font-mono px-1 py-0.5 rounded shadow whitespace-nowrap">
+                      {isRtl ? 'کاربر ریموت' : 'Remote Guest'}
+                    </span>
+                  </div>
                 </div>
               )}
             </div>

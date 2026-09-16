@@ -53,6 +53,9 @@ interface RemoteViewerProps {
   onOpenAiHelp: () => void;
   isRtl: boolean;
   realStream?: MediaStream | null;
+  onSendInput?: (eventData: any) => void;
+  sessionStatus?: string;
+  sessionError?: string | null;
 }
 
 export const RemoteViewer: React.FC<RemoteViewerProps> = ({
@@ -62,7 +65,10 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
   onOpenTerminal,
   onOpenAiHelp,
   isRtl,
-  realStream
+  realStream,
+  onSendInput,
+  sessionStatus,
+  sessionError
 }) => {
   // Session Settings
   const [activeMonitor, setActiveMonitor] = useState<1 | 2 | 'all'>(1);
@@ -318,6 +324,49 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
 
   const toggleModifier = (key: 'ctrl' | 'alt' | 'shift' | 'win') => {
     setActiveModifiers(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  // Keyboard capture for remote typing
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const activeTag = (document.activeElement as HTMLElement)?.tagName;
+      if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return;
+      onSendInput?.({
+        type: 'keydown',
+        key: e.key,
+        code: e.code,
+        ctrlKey: e.ctrlKey,
+        altKey: e.altKey,
+        shiftKey: e.shiftKey
+      });
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [onSendInput]);
+
+  const handleDesktopMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (whiteboardActive) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    const normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    setMousePos({ x: normX * 1920, y: normY * 1080 });
+    onSendInput?.({ type: 'mousemove', x: normX, y: normY });
+  };
+
+  const handleDesktopMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (whiteboardActive) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    const normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    const btn = e.button === 2 ? 'right' : e.button === 1 ? 'middle' : 'left';
+    if (btn === 'left') {
+      triggerLeftClick(normX * 1920, normY * 1080);
+    } else if (btn === 'right') {
+      triggerRightClick(normX * 1920, normY * 1080);
+    }
+    onSendInput?.({ type: 'click', button: btn, x: normX, y: normY });
   };
 
   return (
@@ -583,6 +632,9 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
         onTouchStart={handleScreenTouchStart}
         onTouchMove={handleScreenTouchMove}
         onTouchEnd={handleScreenTouchEnd}
+        onMouseMove={handleDesktopMouseMove}
+        onMouseDown={handleDesktopMouseDown}
+        onContextMenu={(e) => { e.preventDefault(); handleDesktopMouseDown(e); }}
       >
         {/* Real WebRTC Video if stream exists */}
         {realStream ? (
@@ -591,28 +643,43 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
             autoPlay
             playsInline
             muted
-            className="w-full h-full object-contain max-h-full"
+            className="w-full h-full object-contain max-h-full cursor-crosshair"
           />
         ) : (
-          /* REAL CONNECTION WAITING / NEGOTIATING STATE */
+          /* REAL CONNECTION WAITING / NEGOTIATING / ERROR STATE */
           <div className="w-full h-full max-w-4xl max-h-[600px] flex flex-col items-center justify-center p-8 text-center select-none">
             <div className="relative mb-6">
-              <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-red-500/20 to-rose-600/10 border border-red-500/30 flex items-center justify-center shadow-2xl">
-                <Monitor className="w-10 h-10 text-red-500 animate-pulse" />
+              <div className={`w-20 h-20 rounded-2xl border flex items-center justify-center shadow-2xl ${
+                sessionStatus === 'rejected' || sessionStatus === 'error'
+                  ? 'bg-rose-500/20 border-rose-500/40 text-rose-500'
+                  : 'bg-gradient-to-br from-red-500/20 to-rose-600/10 border-red-500/30 text-red-500'
+              }`}>
+                <Monitor className={`w-10 h-10 ${sessionStatus === 'rejected' || sessionStatus === 'error' ? '' : 'animate-pulse'}`} />
               </div>
-              <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-400 animate-ping" />
-              <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 border-2 border-[#0d0f15]" />
+              {sessionStatus !== 'rejected' && sessionStatus !== 'error' && (
+                <>
+                  <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-400 animate-ping" />
+                  <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 border-2 border-[#0d0f15]" />
+                </>
+              )}
             </div>
 
             <h3 className="text-lg font-bold text-white mb-2">
-              {isRtl ? `در حال برقراری ارتباط با ${device.name}...` : `Connecting to ${device.name}...`}
+              {sessionStatus === 'rejected'
+                ? (isRtl ? 'درخواست اتصال رد شد' : 'Connection Rejected')
+                : sessionStatus === 'error'
+                ? (isRtl ? 'خطا در برقراری اتصال' : 'Connection Error')
+                : (isRtl ? `در حال برقراری ارتباط با ${device.name}...` : `Connecting to ${device.name}...`)}
             </h3>
             
             <p className="text-xs text-slate-400 max-w-md mb-6 leading-relaxed">
-              {isRtl 
-                ? `درخواست اتصال P2P (WebRTC) ارسال شده است. به محض تایید در سیستم مقصد یا اشتراک‌گذاری مانیتور، تصویر سیستم ریموت به صورت زنده و بدون تاخیر اینجا پخش خواهد شد.`
-                : `WebRTC P2P signaling initiated. As soon as the host accepts and shares screen, live video and full input control will stream here.`
-              }
+              {sessionStatus === 'rejected'
+                ? (isRtl ? (sessionError || 'درخواست اتصال توسط سیستم میزبان رد شد.') : (sessionError || 'The host rejected the remote connection request.'))
+                : sessionStatus === 'error'
+                ? (sessionError || (isRtl ? 'سیستم مقصد در سرور آنلاین نیست یا شناسه وارد شده صحیح نمی‌باشد.' : 'Remote target is offline.'))
+                : (isRtl 
+                    ? `درخواست اتصال P2P (WebRTC) به سرور ارسال شده است. به محض تایید در پنجره تایید کامپیوتر مقصد یا اشتراک‌گذاری مانیتور، تصویر سیستم ریموت به صورت زنده و با کنترل کامل ماوس و کیبورد پخش خواهد شد.`
+                    : `WebRTC P2P signaling initiated. As soon as the host accepts the prompt and shares screen, live video and input control will stream here.`)}
             </p>
 
             <div className="flex flex-wrap items-center justify-center gap-3 text-xs font-mono text-slate-300">
@@ -621,11 +688,13 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
                 <span className="text-red-400 font-bold">{device.id}</span>
               </div>
               <div className="px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center gap-2">
-                <span className="text-slate-400">پروتکل:</span>
-                <span className="text-emerald-400 font-bold">WebRTC P2P / Direct</span>
+                <span className="text-slate-400">وضعیت سیگنال:</span>
+                <span className={`font-bold ${sessionStatus === 'error' ? 'text-rose-400' : 'text-emerald-400'}`}>
+                  {sessionStatus === 'error' ? 'ناموفق' : sessionStatus === 'rejected' ? 'رد شده' : 'در انتظار تایید کاربر مقصد...'}
+                </span>
               </div>
               <div className="px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center gap-2">
-                <span className="text-slate-400">رمزنگاری:</span>
+                <span className="text-slate-400">پروتکل:</span>
                 <span className="text-blue-400 font-bold">DTLS-SRTP 256-bit</span>
               </div>
             </div>
@@ -633,9 +702,9 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
             <div className="mt-8 flex items-center gap-3">
               <button
                 onClick={onDisconnect}
-                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-rose-900/50 text-slate-300 hover:text-rose-200 border border-slate-700 hover:border-rose-500/50 text-xs transition-colors"
+                className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-rose-900/50 text-slate-300 hover:text-rose-200 border border-slate-700 hover:border-rose-500/50 text-xs font-bold transition-colors"
               >
-                {isRtl ? 'لغو و قطع اتصال' : 'Cancel Connection'}
+                {isRtl ? 'بازگشت به داشبورد' : 'Return to Dashboard'}
               </button>
             </div>
           </div>

@@ -4,6 +4,17 @@ export interface SignalingMessage {
   [key: string]: any;
 }
 
+export function normalizeDeskId(id: string | null | undefined): string {
+  if (!id) return "";
+  return id
+    .toString()
+    .trim()
+    .replace(/[\u06F0-\u06F9]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 1728)) // Persian ۰-۹
+    .replace(/[\u0660-\u0669]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 1584)) // Arabic ٠-٩
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .toLowerCase();
+}
+
 export class WebRtcClient {
   private ws: WebSocket | null = null;
   private peerConnection: RTCPeerConnection | null = null;
@@ -13,20 +24,22 @@ export class WebRtcClient {
   private isHost: boolean = false;
   private onRemoteStreamCallback: ((stream: MediaStream) => void) | null = null;
   private onDataMessageCallback: ((data: any) => void) | null = null;
+  private onRemoteInputCallback: ((input: any) => void) | null = null;
   private onConnectionStatusCallback: ((status: string, details?: any) => void) | null = null;
   private onIncomingRequestCallback: ((request: any) => void) | null = null;
   private localStream: MediaStream | null = null;
   private pingTimer: any = null;
+  private reconnectTimer: any = null;
   private pendingSignalsQueue: any[] = [];
   private iceCandidatesQueue: RTCIceCandidateInit[] = [];
 
   constructor(localId: string) {
-    this.localId = localId.replace(/\s+/g, '');
+    this.localId = normalizeDeskId(localId);
     this.initWebSocket();
   }
 
   public updateLocalId(newId: string) {
-    this.localId = newId.replace(/\s+/g, '');
+    this.localId = normalizeDeskId(newId);
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({
         type: 'register',
@@ -42,22 +55,32 @@ export class WebRtcClient {
       clearInterval(this.pingTimer);
       this.pingTimer = null;
     }
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     const wsUrl = `${protocol}//${host}/ws`;
 
     try {
+      console.log(`[WebRTC] Connecting to signaling server at: ${wsUrl}`);
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
-        console.log('[WebRTC] Connected to signaling gateway, registering:', this.localId);
+        console.log('[WebRTC] Signaling WebSocket open. Registering ID:', this.localId);
         this.ws?.send(JSON.stringify({
           type: 'register',
           id: this.localId,
           alias: localStorage.getItem('mehdesk_alias') || `${this.localId}@desk`,
           isHost: this.isHost,
-          unattendedPassword: localStorage.getItem('mehdesk_password') || ''
+          unattendedPassword: localStorage.getItem('mehdesk_password') || '',
+          deviceInfo: {
+            userAgent: navigator.userAgent,
+            platform: navigator.platform,
+            screen: `${window.screen.width}x${window.screen.height}`
+          }
         }));
         this.onConnectionStatusCallback?.('connected_to_signaling');
 
@@ -67,7 +90,7 @@ export class WebRtcClient {
           this.sendSignal(item);
         }
 
-        // Start 10s keepalive ping to prevent Nginx/proxy timeout
+        // Start 10s keepalive ping
         this.pingTimer = setInterval(() => {
           if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify({ type: 'ping' }));
@@ -79,26 +102,28 @@ export class WebRtcClient {
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === 'pong') return;
+          console.log(`[WebRTC] Received WS message: ${msg.type}`, msg);
           this.handleSignalingMessage(msg);
         } catch (e) {
-          console.error('[WebRTC] WS parse error:', e);
+          console.error('[WebRTC] WS message parse error:', e);
         }
       };
 
-      this.ws.onclose = () => {
+      this.ws.onclose = (ev) => {
+        console.warn('[WebRTC] Signaling WebSocket closed code:', ev.code, ev.reason);
         if (this.pingTimer) {
           clearInterval(this.pingTimer);
           this.pingTimer = null;
         }
         this.onConnectionStatusCallback?.('disconnected_from_signaling');
-        setTimeout(() => this.initWebSocket(), 2500);
+        this.reconnectTimer = setTimeout(() => this.initWebSocket(), 2000);
       };
 
       this.ws.onerror = (err) => {
         console.warn('[WebRTC] WS signaling socket error:', err);
       };
     } catch (err) {
-      console.error('[WebRTC] WebSocket connection failed:', err);
+      console.error('[WebRTC] WebSocket connection setup failed:', err);
     }
   }
 
@@ -135,6 +160,7 @@ export class WebRtcClient {
     };
 
     pc.ondatachannel = (event) => {
+      console.log('WebRTC ondatachannel received:', event.channel.label);
       this.dataChannel = event.channel;
       this.setupDataChannelEvents();
     };
@@ -152,6 +178,9 @@ export class WebRtcClient {
     this.dataChannel.onmessage = (event) => {
       try {
         const parsed = JSON.parse(event.data);
+        if (parsed.type === 'remote_input') {
+          this.onRemoteInputCallback?.(parsed);
+        }
         this.onDataMessageCallback?.(parsed);
       } catch (e) {
         this.onDataMessageCallback?.(event.data);
@@ -175,10 +204,17 @@ export class WebRtcClient {
 
   private async handleSignalingMessage(msg: any) {
     switch (msg.type) {
+      case 'registered': {
+        this.onConnectionStatusCallback?.('registered', msg);
+        break;
+      }
+
       case 'incoming_connection':
       case 'incoming_connection_request': {
+        console.log('[WebRTC] Dispatching incoming request to UI dialog:', msg);
         this.onIncomingRequestCallback?.({
-          fromId: msg.fromId || msg.senderId,
+          fromId: msg.fromId || msg.senderId || msg.rawFromId,
+          rawFromId: msg.rawFromId || msg.fromId,
           requesterName: msg.fromAlias || msg.requesterName || `Client (${msg.fromId || msg.senderId})`,
           requesterDevice: msg.fromDevice || msg.requesterDevice || 'Remote Client',
           requiresPassword: msg.requiresPassword,
@@ -188,23 +224,26 @@ export class WebRtcClient {
       }
 
       case 'connection_result': {
+        console.log('[WebRTC] Connection result received:', msg);
         if (msg.accepted) {
-          this.onConnectionStatusCallback?.('accepted');
+          this.onConnectionStatusCallback?.('accepted', msg.permissions);
           // Start WebRTC negotiation as Viewer
           await this.createOffer();
         } else {
-          this.onConnectionStatusCallback?.('rejected', msg.reason || 'درخواست اتصال توسط کاربر رد شد');
+          this.onConnectionStatusCallback?.('rejected', msg.reason || 'درخواست اتصال توسط کاربر مقصد رد شد');
         }
         break;
       }
 
       case 'connect_error': {
-        this.onConnectionStatusCallback?.('rejected', msg.message);
+        console.warn('[WebRTC] Connection error from server:', msg.message);
+        this.onConnectionStatusCallback?.('error', msg.message);
         break;
       }
 
       case 'signal_offer': {
-        this.targetId = msg.senderId;
+        console.log('[WebRTC] Received offer from host/peer:', msg.senderId);
+        this.targetId = normalizeDeskId(msg.senderId);
         this.peerConnection = this.createPeerConnection();
 
         if (this.localStream) {
@@ -220,13 +259,14 @@ export class WebRtcClient {
 
         this.sendSignal({
           type: 'signal_answer',
-          targetId: msg.senderId,
+          targetId: this.targetId,
           answer: answer
         });
         break;
       }
 
       case 'signal_answer': {
+        console.log('[WebRTC] Received answer from peer');
         if (this.peerConnection) {
           await this.peerConnection.setRemoteDescription(new RTCSessionDescription(msg.answer));
           await this.flushIceCandidatesQueue();
@@ -249,7 +289,12 @@ export class WebRtcClient {
         break;
       }
 
-      case 'remote_input':
+      case 'remote_input': {
+        this.onRemoteInputCallback?.(msg);
+        this.onDataMessageCallback?.(msg);
+        break;
+      }
+
       case 'clipboard_sync':
       case 'file_meta':
       case 'file_chunk':
@@ -261,25 +306,30 @@ export class WebRtcClient {
   }
 
   public async connectToHost(targetId: string, password?: string) {
-    this.targetId = targetId.replace(/\s+/g, '');
+    this.targetId = normalizeDeskId(targetId);
     this.isHost = false;
 
+    console.log(`[WebRTC] Sending connection request to target: ${this.targetId}`);
     this.sendSignal({
-      type: 'request_connect',
+      type: 'connect_request',
       fromId: this.localId,
       toId: this.targetId,
+      targetId: this.targetId,
       requesterName: localStorage.getItem('mehdesk_alias') || `Client (${this.localId})`,
       requesterDevice: navigator.userAgent.includes('Mobile') ? 'Mobile Web' : 'Desktop Browser',
       providedPassword: password
     });
   }
 
-  public respondToRequest(requesterId: string, accepted: boolean, permissions: any) {
-    this.targetId = requesterId;
+  public respondToRequest(requesterId: string, accepted: boolean, permissions?: any) {
+    const cleanRequester = normalizeDeskId(requesterId);
+    this.targetId = cleanRequester;
+    console.log(`[WebRTC] Responding to request from ${cleanRequester}: accepted=${accepted}`);
     this.sendSignal({
       type: 'connect_response',
       hostId: this.localId,
-      toId: requesterId,
+      toId: cleanRequester,
+      targetId: cleanRequester,
       accepted,
       permissions
     });
@@ -340,23 +390,24 @@ export class WebRtcClient {
   }
 
   public sendInputEvent(eventData: any) {
+    const payload = { type: 'remote_input', ...eventData };
     if (this.dataChannel && this.dataChannel.readyState === 'open') {
-      this.dataChannel.send(JSON.stringify({ type: 'remote_input', ...eventData }));
+      this.dataChannel.send(JSON.stringify(payload));
     } else if (this.ws && this.ws.readyState === WebSocket.OPEN && this.targetId) {
       this.sendSignal({
-        type: 'remote_input',
         targetId: this.targetId,
-        ...eventData
+        ...payload
       });
     }
   }
 
   public sendSignal(data: any) {
+    const packet = { senderId: this.localId, ...data };
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ senderId: this.localId, ...data }));
+      this.ws.send(JSON.stringify(packet));
     } else {
       console.log('[WebRTC] Queueing signal while socket connecting:', data.type);
-      this.pendingSignalsQueue.push(data);
+      this.pendingSignalsQueue.push(packet);
     }
   }
 
@@ -366,6 +417,10 @@ export class WebRtcClient {
 
   public onDataMessage(cb: (data: any) => void) {
     this.onDataMessageCallback = cb;
+  }
+
+  public onRemoteInput(cb: (input: any) => void) {
+    this.onRemoteInputCallback = cb;
   }
 
   public onConnectionStatus(cb: (status: string, details?: any) => void) {
