@@ -206,59 +206,7 @@ show_menu() {
         6)
             read -p "Enter your server domain (e.g., remote.company.com): " USER_DOMAIN
             if [ -n "$USER_DOMAIN" ]; then
-                CURRENT_PORT="3000"
-                if [ -f "${INSTALL_DIR}/.env" ]; then
-                    source "${INSTALL_DIR}/.env"
-                    CURRENT_PORT="${PORT:-3000}"
-                fi
-
-                echo -e "${CYAN}Setting up Nginx reverse proxy on port ${CURRENT_PORT} for ${USER_DOMAIN}...${NC}"
-                
-                cat << NGINX_CONF > /etc/nginx/sites-available/mehdesk.conf
-server {
-    listen 80;
-    server_name ${USER_DOMAIN};
-
-    location / {
-        proxy_pass http://127.0.0.1:${CURRENT_PORT};
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_read_timeout 86400s;
-        proxy_send_timeout 86400s;
-        client_max_body_size 500M;
-    }
-}
-NGINX_CONF
-
-                mkdir -p /etc/nginx/sites-enabled
-                ln -sf /etc/nginx/sites-available/mehdesk.conf /etc/nginx/sites-enabled/mehdesk.conf
-                rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
-
-                if nginx -t; then
-                    systemctl restart nginx
-                    systemctl enable nginx
-                    echo -e "${GREEN}[OK] Nginx configured and reloaded.${NC}"
-                fi
-
-                echo -e "${CYAN}Requesting Let's Encrypt SSL certificate...${NC}"
-                if certbot --nginx -d "${USER_DOMAIN}" --non-interactive --agree-tos --register-unsafely-without-email --redirect; then
-                    sed -i "s/DOMAIN=.*/DOMAIN=${USER_DOMAIN}/" "${INSTALL_DIR}/.env"
-                    systemctl reload nginx 2>/dev/null || true
-                    systemctl restart ${SERVICE_NAME}
-                    echo -e "\n${GREEN}🎉 Domain and SSL certificate configured successfully!${NC}"
-                    echo -e "Access URL: ${CYAN}https://${USER_DOMAIN}${NC}"
-                else
-                    echo -e "\n${RED}[ERROR] SSL certificate issuance failed.${NC}"
-                    echo -e "${YELLOW}Common causes:${NC}"
-                    echo -e " 1. Domain DNS (A Record) is not pointing to this server IP yet."
-                    echo -e " 2. Cloudflare Proxy (Orange Cloud) is enabled. Temporarily set to 'DNS Only' (Grey Cloud) and retry."
-                    echo -e " 3. Port 80 / 443 are blocked by your cloud provider firewall."
-                fi
+                setup_domain_ssl "$USER_DOMAIN"
             fi
             echo -e "\nPress Enter to return to menu..."
             read -r
@@ -323,9 +271,22 @@ setup_domain_ssl() {
 
     echo -e "\n${CYAN}[SSL] Configuring Nginx Reverse Proxy on port ${current_port} for ${target_domain}...${NC}"
 
+    # Ensure Nginx and Certbot are installed
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get update -y >/dev/null 2>&1 || true
+        apt-get install -y nginx certbot python3-certbot-nginx >/dev/null 2>&1 || true
+    elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y nginx certbot python3-certbot-nginx >/dev/null 2>&1 || true
+    fi
+
+    # Wipe out conflicting default configs
+    rm -f /etc/nginx/sites-enabled/* /etc/nginx/conf.d/default.conf /etc/nginx/sites-available/default 2>/dev/null || true
+    mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/conf.d
+
     cat << NGINX_CONF > /etc/nginx/sites-available/mehdesk.conf
 server {
     listen 80;
+    listen [::]:80;
     server_name ${target_domain};
 
     location / {
@@ -344,35 +305,39 @@ server {
 }
 NGINX_CONF
 
-    mkdir -p /etc/nginx/sites-enabled
     ln -sf /etc/nginx/sites-available/mehdesk.conf /etc/nginx/sites-enabled/mehdesk.conf
-    rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+    cp -f /etc/nginx/sites-available/mehdesk.conf /etc/nginx/conf.d/mehdesk.conf 2>/dev/null || true
 
-    if nginx -t; then
-        systemctl restart nginx
-        systemctl enable nginx
-        echo -e "${GREEN}[OK] Nginx configured and reloaded.${NC}"
-    fi
-
-    # Allow firewall
+    # Open firewall ports for HTTP & HTTPS
     if command -v ufw >/dev/null 2>&1; then
         ufw allow 80/tcp || true
         ufw allow 443/tcp || true
+    elif command -v firewall-cmd >/dev/null 2>&1; then
+        firewall-cmd --permanent --add-service=http || true
+        firewall-cmd --permanent --add-service=https || true
+        firewall-cmd --reload || true
     fi
 
-    echo -e "${CYAN}[SSL] Requesting Let's Encrypt SSL certificate for ${target_domain}...${NC}"
-    if certbot --nginx -d "${target_domain}" --non-interactive --agree-tos --register-unsafely-without-email --redirect; then
+    if nginx -t >/dev/null 2>&1; then
+        systemctl restart nginx || systemctl reload nginx
+        systemctl enable nginx 2>/dev/null || true
+        echo -e "${GREEN}[OK] Nginx reverse proxy configured and active.${NC}"
+    else
+        echo -e "${RED}[ERROR] Nginx test failed. Restarting anyway...${NC}"
+        systemctl restart nginx 2>/dev/null || true
+    fi
+
+    echo -e "${CYAN}[SSL] Requesting / Re-linking Let's Encrypt SSL certificate for ${target_domain}...${NC}"
+    if certbot --nginx -d "${target_domain}" --non-interactive --agree-tos --register-unsafely-without-email --redirect --keep-until-expiring; then
         sed -i "s/DOMAIN=.*/DOMAIN=${target_domain}/" "${INSTALL_DIR}/.env"
-        systemctl reload nginx 2>/dev/null || true
-        systemctl restart ${SERVICE_NAME}
+        systemctl reload nginx 2>/dev/null || systemctl restart nginx 2>/dev/null || true
+        systemctl restart ${SERVICE_NAME} 2>/dev/null || true
         echo -e "\n${GREEN}🎉 Domain and SSL certificate configured successfully!${NC}"
         echo -e "Access URL: ${CYAN}https://${target_domain}${NC}"
     else
-        echo -e "\n${RED}[ERROR] SSL certificate issuance failed.${NC}"
-        echo -e "${YELLOW}Common causes:${NC}"
-        echo -e " 1. Domain DNS (A Record) is not pointing to this server IP yet."
-        echo -e " 2. Cloudflare Proxy (Orange Cloud) is active. Temporarily switch to 'DNS Only' (Grey Cloud) and retry."
-        echo -e " 3. Port 80 / 443 are blocked by your cloud provider firewall."
+        echo -e "\n${YELLOW}[INFO] Let's Encrypt automated challenge could not complete right now.${NC}"
+        echo -e "${YELLOW}HTTP Reverse proxy is already active on http://${target_domain}${NC}"
+        echo -e "${YELLOW}Ensure DNS A-Record points to this IP and Cloudflare proxy is off, then run SSL setup again.${NC}"
     fi
 }
 
@@ -524,6 +489,16 @@ main_interactive_menu() {
                 npm run build
                 create_cli_tool
                 systemctl restart ${SERVICE_NAME}
+
+                # Automatically configure & link Nginx & SSL if domain is present in .env
+                if [ -f "${INSTALL_DIR}/.env" ]; then
+                    source "${INSTALL_DIR}/.env"
+                    if [ -n "$DOMAIN" ]; then
+                        echo -e "\n${CYAN}Detected domain '${DOMAIN}' in .env. Updating Nginx & SSL configuration...${NC}"
+                        setup_domain_ssl "$DOMAIN"
+                    fi
+                fi
+
                 echo -e "${GREEN}Update completed successfully.${NC}"
             else
                 echo -e "${YELLOW}meh desk is not installed yet. Running installer...${NC}"

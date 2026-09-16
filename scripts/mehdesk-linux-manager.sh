@@ -233,10 +233,15 @@ setup_nginx_ssl() {
 
     # Ensure Nginx & Certbot are installed
     if command -v apt-get &>/dev/null; then
-        apt-get install -y nginx certbot python3-certbot-nginx
+        apt-get update -y >/dev/null 2>&1 || true
+        apt-get install -y nginx certbot python3-certbot-nginx >/dev/null 2>&1 || true
     elif command -v dnf &>/dev/null; then
-        dnf install -y nginx certbot python3-certbot-nginx
+        dnf install -y nginx certbot python3-certbot-nginx >/dev/null 2>&1 || true
     fi
+
+    # Wipe out conflicting default configs
+    rm -f /etc/nginx/sites-enabled/* /etc/nginx/conf.d/default.conf /etc/nginx/sites-available/default 2>/dev/null || true
+    mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/conf.d
 
     # Create Nginx site configuration with full WebSocket & PWA support
     cat <<EOF > /etc/nginx/sites-available/mehdesk.conf
@@ -261,20 +266,18 @@ server {
 }
 EOF
 
-    mkdir -p /etc/nginx/sites-enabled /etc/nginx/conf.d
     ln -sf /etc/nginx/sites-available/mehdesk.conf /etc/nginx/sites-enabled/mehdesk.conf
     # Also write to conf.d for CentOS/RHEL/AlmaLinux compatibility
     cp -f /etc/nginx/sites-available/mehdesk.conf /etc/nginx/conf.d/mehdesk.conf 2>/dev/null || true
-    rm -f /etc/nginx/sites-enabled/default /etc/nginx/conf.d/default.conf 2>/dev/null || true
 
     # Test nginx configuration
-    if nginx -t; then
+    if nginx -t >/dev/null 2>&1; then
         systemctl restart nginx || systemctl reload nginx
         systemctl enable nginx 2>/dev/null || true
         echo -e "${GREEN}[OK] Nginx reverse proxy configured.${NC}"
     else
         echo -e "${RED}[ERROR] Nginx configuration test failed.${NC}"
-        return 1
+        systemctl restart nginx 2>/dev/null || true
     fi
 
     # Allow Firewall Ports
@@ -287,15 +290,13 @@ EOF
         firewall-cmd --reload || true
     fi
 
-    # Request Let's Encrypt SSL Certificate
-    echo -e "${CYAN}[SSL] Requesting Free Let's Encrypt SSL Certificate for ${domain}...${NC}"
-    certbot --nginx -d "${domain}" --non-interactive --agree-tos --register-unsafely-without-email --redirect || {
-        echo -e "${YELLOW}[WARN] Automatic Certbot SSL configuration failed.${NC}"
-        echo -e "${YELLOW}Reason: Make sure your Domain DNS (A Record) points to this server IP before requesting SSL.${NC}"
-        echo -e "${YELLOW}You can re-run SSL setup anytime from menu option 3.${NC}"
+    # Request / Re-link Let's Encrypt SSL Certificate
+    echo -e "${CYAN}[SSL] Requesting / Linking Free Let's Encrypt SSL Certificate for ${domain}...${NC}"
+    certbot --nginx -d "${domain}" --non-interactive --agree-tos --register-unsafely-without-email --redirect --keep-until-expiring 2>/dev/null || {
+        echo -e "${YELLOW}[WARN] Automatic Certbot SSL configuration could not link automatically.${NC}"
     }
 
-    systemctl reload nginx 2>/dev/null || true
+    systemctl reload nginx 2>/dev/null || systemctl restart nginx 2>/dev/null || true
 }
 
 configure_standalone_ssl() {
