@@ -174,6 +174,16 @@ show_menu() {
             npm install --production=false
             npm run build
             systemctl restart ${SERVICE_NAME}
+
+            # If domain is present in .env, automatically repair Nginx & SSL configuration
+            if [ -f "${INSTALL_DIR}/.env" ]; then
+                source "${INSTALL_DIR}/.env"
+                if [ -n "$DOMAIN" ]; then
+                    echo -e "\n${CYAN}Detected domain '${DOMAIN}' in .env. Checking & updating Nginx and SSL...${NC}"
+                    setup_domain_ssl "$DOMAIN"
+                fi
+            fi
+
             echo -e "${GREEN}Update completed successfully.${NC}"
             sleep 2
             show_menu

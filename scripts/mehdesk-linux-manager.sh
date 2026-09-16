@@ -328,6 +328,16 @@ update_mehdesk() {
     npm install --production=false
     npm run build
     systemctl restart ${SERVICE_NAME} || true
+
+    # If domain is set, automatically ensure Nginx & SSL are intact
+    if [ -f "${ENV_FILE}" ]; then
+        source "${ENV_FILE}"
+        if [ -n "$DOMAIN" ]; then
+            echo -e "\n${CYAN}Detected domain '${DOMAIN}' in .env. Verifying Nginx & SSL configuration...${NC}"
+            setup_nginx_ssl "$DOMAIN" "${PORT:-3000}"
+        fi
+    fi
+
     echo -e "${GREEN}[OK] Update completed successfully.${NC}"
 }
 
