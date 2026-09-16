@@ -385,16 +385,32 @@ update_mehdesk() {
         journalctl -u ${SERVICE_NAME} -n 20 --no-pager || true
     fi
 
-    # If domain is set, automatically ensure Nginx & SSL are intact
+    # Automatically detect domain from .env, Nginx configs, or certbot certificates
+    local detected_domain=""
     if [ -f "${ENV_FILE}" ]; then
         source "${ENV_FILE}"
-        if [ -n "$DOMAIN" ]; then
-            echo -e "\n${CYAN}Detected domain '${DOMAIN}' in .env. Verifying Nginx & SSL configuration...${NC}"
-            setup_nginx_ssl "$DOMAIN" "${PORT:-3000}"
-        fi
+        detected_domain="${DOMAIN:-}"
     fi
 
-    echo -e "\n${GREEN}${BOLD}🎉 meh desk update completed successfully with 100% data intact.${NC}\n"
+    if [ -z "$detected_domain" ] && [ -f "/etc/nginx/sites-available/mehdesk.conf" ]; then
+        detected_domain=$(grep -m 1 "server_name" /etc/nginx/sites-available/mehdesk.conf 2>/dev/null | awk '{print $2}' | tr -d ';')
+    fi
+
+    if [ -z "$detected_domain" ] && command -v certbot &>/dev/null; then
+        detected_domain=$(certbot certificates 2>/dev/null | grep "Certificate Name:" | head -n 1 | awk '{print $3}')
+    fi
+
+    # If Nginx is installed and active, automatically refresh its WebSocket proxy & SSL rules
+    if command -v nginx &>/dev/null && [ -n "$detected_domain" ] && [ "$detected_domain" != "_" ]; then
+        echo -e "\n${CYAN}[6/6] Auto-refreshing Nginx WebSockets & SSL proxy for '${detected_domain}'...${NC}"
+        setup_nginx_ssl "$detected_domain" "${PORT:-3000}"
+    elif command -v nginx &>/dev/null && [ -f "/etc/nginx/sites-available/mehdesk.conf" ]; then
+        # Direct IP or custom Nginx
+        echo -e "\n${CYAN}[6/6] Reloading Nginx reverse proxy...${NC}"
+        nginx -t >/dev/null 2>&1 && systemctl reload nginx 2>/dev/null || true
+    fi
+
+    echo -e "\n${GREEN}${BOLD}🎉 meh desk update completed successfully! All services & WebSockets updated.${NC}\n"
 }
 
 uninstall_mehdesk() {
