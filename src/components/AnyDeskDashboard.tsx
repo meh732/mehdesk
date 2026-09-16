@@ -28,9 +28,11 @@ import {
   Building2, 
   MapPin, 
   Cpu, 
-  Radio
+  Radio,
+  AlertTriangle
 } from 'lucide-react';
 import { Device, OSType } from '../types';
+import { normalizeDeskId } from '../utils/webrtc';
 
 interface AnyDeskDashboardProps {
   localId: string;
@@ -70,6 +72,31 @@ export const AnyDeskDashboard: React.FC<AnyDeskDashboardProps> = ({
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [onlineDevices, setOnlineDevices] = useState<Array<{ id: string; rawId: string; alias: string; isHost: boolean; deviceInfo?: any }>>([]);
+
+  // Fetch online devices from signaling server
+  React.useEffect(() => {
+    const fetchOnline = async () => {
+      try {
+        const res = await fetch('/api/online-devices');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && Array.isArray(data.devices)) {
+            setOnlineDevices(data.devices);
+          }
+        }
+      } catch (err) {
+        // silent fetch error
+      }
+    };
+
+    fetchOnline();
+    const interval = setInterval(fetchOnline, 4000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const isSelfId = normalizeDeskId(remoteInput) === normalizeDeskId(localId) && remoteInput.replace(/\s+/g, '').length >= 6;
+  const otherOnlinePeers = onlineDevices.filter(d => normalizeDeskId(d.id) !== normalizeDeskId(localId));
 
   // New device form state
   const [newName, setNewName] = useState('');
@@ -258,15 +285,34 @@ export const AnyDeskDashboard: React.FC<AnyDeskDashboardProps> = ({
                   onChange={(e) => setRemoteInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleQuickConnect('desktop')}
                   placeholder={isRtl ? 'شناسه ریموت یا نام مستعار (مثال: 489 312 905 یا acc-tehran-01@desk)...' : 'Enter Remote ID or Alias (e.g. 489 312 905)...'}
-                  className="w-full bg-[#11131a] border border-slate-700 rounded-xl px-4 py-3 text-sm font-mono text-white placeholder-slate-500 focus:outline-none focus:border-red-500 shadow-inner"
+                  className={`w-full bg-[#11131a] border rounded-xl px-4 py-3 text-sm font-mono text-white placeholder-slate-500 focus:outline-none shadow-inner ${
+                    isSelfId ? 'border-amber-500 focus:border-amber-400' : 'border-slate-700 focus:border-red-500'
+                  }`}
                 />
               </div>
+
+              {/* Self-Connection Warning Banner */}
+              {isSelfId && (
+                <div className="bg-amber-950/60 border border-amber-500/50 rounded-xl p-3 text-xs text-amber-300 flex items-start gap-2 animate-fadeIn">
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-bold">
+                      {isRtl ? '⚠️ این شناسه سیستم فعلی شماست!' : '⚠️ This is your own Desk ID!'}
+                    </p>
+                    <p className="text-[11px] text-amber-200/90 leading-relaxed">
+                      {isRtl
+                        ? 'در مه دسک برای ریموت زدن، باید شناسه کامپیوتر یا سرور مقصد را در این کادر وارد کنید. اگر قصد اشتراک‌گذاری صفحه همین سیستم را دارید، از دکمه «شروع اشتراک صفحه» در پنل سمت راست استفاده کنید. برای تست همین کامپیوتر، یک پنجره ناشناس (Incognito) باز فرمایید.'
+                        : 'To connect, you must enter the remote computer\'s ID. To share this machine\'s screen, use the button in the right panel.'}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Action Buttons: Connect, File Transfer, Terminal */}
               <div className="grid grid-cols-3 gap-2">
                 <button
                   onClick={() => handleQuickConnect('desktop')}
-                  disabled={!remoteInput.trim()}
+                  disabled={!remoteInput.trim() || isSelfId}
                   className="bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-red-600/30 transition-all"
                 >
                   <Tv className="w-4 h-4" />
@@ -275,7 +321,7 @@ export const AnyDeskDashboard: React.FC<AnyDeskDashboardProps> = ({
 
                 <button
                   onClick={() => handleQuickConnect('file')}
-                  disabled={!remoteInput.trim()}
+                  disabled={!remoteInput.trim() || isSelfId}
                   className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border border-slate-700 transition-colors"
                 >
                   <FolderSync className="w-4 h-4 text-amber-400" />
@@ -284,7 +330,7 @@ export const AnyDeskDashboard: React.FC<AnyDeskDashboardProps> = ({
 
                 <button
                   onClick={() => handleQuickConnect('terminal')}
-                  disabled={!remoteInput.trim()}
+                  disabled={!remoteInput.trim() || isSelfId}
                   className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border border-slate-700 transition-colors"
                 >
                   <Terminal className="w-4 h-4 text-emerald-400" />
@@ -292,6 +338,38 @@ export const AnyDeskDashboard: React.FC<AnyDeskDashboardProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* Live Online Devices on this Server */}
+            {otherOnlinePeers.length > 0 && (
+              <div className="bg-emerald-950/30 border border-emerald-500/40 rounded-xl p-3 space-y-2">
+                <div className="flex items-center justify-between text-xs text-emerald-400 font-bold">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                    <span>{isRtl ? 'دستگاه‌های آنلاین روی این سرور (اتصال سریع):' : 'Live Online Devices on this Server:'}</span>
+                  </span>
+                  <span className="text-[10px] bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                    {otherOnlinePeers.length} {isRtl ? 'دستگاه' : 'online'}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {otherOnlinePeers.map(peer => (
+                    <button
+                      key={peer.id}
+                      onClick={() => {
+                        setRemoteInput(peer.rawId || peer.id);
+                        onConnectToId(peer.rawId || peer.id, 'desktop');
+                      }}
+                      className="bg-emerald-900/40 hover:bg-emerald-800/60 border border-emerald-500/50 rounded-lg px-2.5 py-1.5 text-xs text-emerald-200 flex items-center gap-2 transition-all"
+                    >
+                      <Laptop className="w-3.5 h-3.5 text-emerald-400" />
+                      <span className="font-mono font-bold">{peer.rawId || peer.id}</span>
+                      <span className="text-[10px] text-emerald-300/80">({peer.alias || 'کلاینت'})</span>
+                      <ArrowLeft className={`w-3 h-3 text-emerald-400 ${isRtl ? '' : 'rotate-180'}`} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Quick Tips */}
             <div className="text-[11px] text-slate-400 flex items-center gap-2 bg-slate-900/60 p-2.5 rounded-xl border border-slate-800/80">

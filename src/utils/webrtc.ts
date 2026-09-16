@@ -135,7 +135,9 @@ export class WebRtcClient {
         { urls: 'stun:stun2.l.google.com:19302' },
         { urls: 'stun:stun3.l.google.com:19302' },
         { urls: 'stun:stun4.l.google.com:19302' },
-        { urls: 'stun:stun.services.mozilla.com' }
+        { urls: 'stun:stun.services.mozilla.com' },
+        { urls: 'stun:stun.cloudflare.com:3478' },
+        { urls: 'stun:stun.nextcloud.com:443' }
       ]
     });
 
@@ -167,7 +169,30 @@ export class WebRtcClient {
 
     pc.onconnectionstatechange = () => {
       console.log('WebRTC Connection state changed:', pc.connectionState);
-      this.onConnectionStatusCallback?.(pc.connectionState);
+      if (pc.connectionState === 'connected') {
+        this.onConnectionStatusCallback?.('connected');
+      } else if (pc.connectionState === 'failed') {
+        console.warn('WebRTC connection failed, attempting ICE restart...');
+        try {
+          pc.restartIce();
+        } catch (e) {
+          console.warn('Restart ICE failed:', e);
+        }
+        this.onConnectionStatusCallback?.('connecting', 'تلاش مجدد جهت عبور از فایروال و اتصال مستقیم...');
+      } else if (pc.connectionState === 'disconnected') {
+        this.onConnectionStatusCallback?.('connecting', 'اتصال موقتاً قطع شد، در حال اتصال مجدد...');
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log('WebRTC ICE Connection state:', pc.iceConnectionState);
+      if (pc.iceConnectionState === 'failed') {
+        try {
+          pc.restartIce();
+        } catch (e) {
+          console.warn('Restart ICE on iceConnectionState failed:', e);
+        }
+      }
     };
 
     return pc;
@@ -244,11 +269,19 @@ export class WebRtcClient {
       case 'signal_offer': {
         console.log('[WebRTC] Received offer from host/peer:', msg.senderId);
         this.targetId = normalizeDeskId(msg.senderId);
-        this.peerConnection = this.createPeerConnection();
+        if (!this.peerConnection || this.peerConnection.connectionState === 'closed') {
+          this.peerConnection = this.createPeerConnection();
+        }
 
         if (this.localStream) {
+          const senders = this.peerConnection.getSenders();
           this.localStream.getTracks().forEach(track => {
-            this.peerConnection?.addTrack(track, this.localStream!);
+            const sender = senders.find(s => s.track?.kind === track.kind);
+            if (sender) {
+              sender.replaceTrack(track);
+            } else {
+              this.peerConnection?.addTrack(track, this.localStream!);
+            }
           });
         }
 
@@ -349,6 +382,21 @@ export class WebRtcClient {
           this.peerConnection?.addTrack(track, stream);
         }
       });
+
+      // If already connected or negotiation needed, send updated offer
+      if (this.targetId && this.peerConnection.signalingState === 'stable') {
+        try {
+          const offer = await this.peerConnection.createOffer();
+          await this.peerConnection.setLocalDescription(offer);
+          this.sendSignal({
+            type: 'signal_offer',
+            targetId: this.targetId,
+            offer: offer
+          });
+        } catch (err) {
+          console.warn('[WebRTC] Renegotiation offer failed:', err);
+        }
+      }
     }
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {

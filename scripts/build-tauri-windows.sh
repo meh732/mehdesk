@@ -45,6 +45,25 @@ fi
 
 # 2. Detect Package Manager & Install MinGW-w64 + NSIS on Linux
 echo -e "\n${CYAN}[1/6] Checking Linux cross-compilation tools (mingw-w64, nsis)...${NC}"
+
+# Check and configure Swap space to prevent Linux Out-Of-Memory Killer (signal: 9, SIGKILL)
+AVAILABLE_SWAP=$(free -m 2>/dev/null | awk '/^Swap:/ {print $2}')
+if [ -z "$AVAILABLE_SWAP" ]; then AVAILABLE_SWAP=0; fi
+
+if [ "$AVAILABLE_SWAP" -lt 2500 ]; then
+    echo -e "${YELLOW}Detected low swap (${AVAILABLE_SWAP}MB). Setting up 3GB swapfile to protect Rust compiler from OOM SIGKILL...${NC}"
+    if [ ! -f /swapfile_mehdesk ]; then
+        fallocate -l 3G /swapfile_mehdesk 2>/dev/null || dd if=/dev/zero of=/swapfile_mehdesk bs=1M count=3072 2>/dev/null || true
+        chmod 600 /swapfile_mehdesk 2>/dev/null || true
+        mkswap /swapfile_mehdesk 2>/dev/null || true
+    fi
+    swapon /swapfile_mehdesk 2>/dev/null || true
+    echo -e "${GREEN}[OK] Swap active: $(free -m 2>/dev/null | awk '/^Swap:/ {print $2}')MB${NC}"
+fi
+
+# Set memory-conservative compiler options for VPS stability
+export CARGO_BUILD_JOBS=1
+export RUSTFLAGS="-C codegen-units=1"
 if ! command -v x86_64-w64-mingw32-gcc &>/dev/null; then
     echo -e "${YELLOW}Installing MinGW-w64 (Windows GCC Cross-Compiler on Linux)...${NC}"
     if command -v apt-get &>/dev/null; then
@@ -116,6 +135,9 @@ echo -e "${MAGENTA}Target: x86_64-pc-windows-gnu (Native Windows 64-bit .exe)${N
 
 cd "${PROJECT_ROOT}/src-tauri"
 
+# Clean any broken partial rmeta files from previous OOM killer signal 9
+rm -f "${PROJECT_ROOT}/src-tauri/target/x86_64-pc-windows-gnu/release/deps/libwindows_numerics"* 2>/dev/null || true
+
 # Tauri build without invalid --release flag (cargo tauri build runs in release mode by default)
 BUILD_SUCCESS=0
 
@@ -134,9 +156,9 @@ elif npx tauri --version &>/dev/null; then
 fi
 
 if [ "$BUILD_SUCCESS" -ne 1 ]; then
-    echo -e "${YELLOW}Running direct Cargo Rust cross-compiler: cargo build --target x86_64-pc-windows-gnu --release${NC}"
+    echo -e "${YELLOW}Running direct Cargo Rust cross-compiler with single job to prevent OOM: cargo build --target x86_64-pc-windows-gnu --release -j 1${NC}"
     cd "${PROJECT_ROOT}/src-tauri"
-    cargo build --target x86_64-pc-windows-gnu --release && BUILD_SUCCESS=1 || true
+    cargo build --target x86_64-pc-windows-gnu --release -j 1 && BUILD_SUCCESS=1 || true
 fi
 
 cd "${PROJECT_ROOT}"

@@ -16,15 +16,18 @@ import { INITIAL_COMPANY_DEVICES } from './utils/mockDevices';
 import { WebRtcClient } from './utils/webrtc';
 
 export default function App() {
-  // Generate random 9-digit client ID once or persist in localStorage
+  // Generate random 9-digit client ID per browser session/tab so multiple tabs can test independently
   const [localId, setLocalId] = useState<string>(() => {
-    const saved = localStorage.getItem('mehdesk_local_id');
-    if (saved) return saved;
+    // 1. Check current tab's sessionStorage so each tab can be an independent client
+    const sessionSaved = sessionStorage.getItem('mehdesk_local_id');
+    if (sessionSaved) return sessionSaved;
+
+    // 2. Generate distinct random 9-digit ID for this session
     const p1 = Math.floor(100 + Math.random() * 900);
     const p2 = Math.floor(100 + Math.random() * 900);
     const p3 = Math.floor(100 + Math.random() * 900);
     const newId = `${p1} ${p2} ${p3}`;
-    localStorage.setItem('mehdesk_local_id', newId);
+    sessionStorage.setItem('mehdesk_local_id', newId);
     return newId;
   });
 
@@ -117,6 +120,11 @@ export default function App() {
         setSignalingStatus('connected');
       } else if (status === 'disconnected_from_signaling') {
         setSignalingStatus('disconnected');
+      } else if (status === 'connecting') {
+        setSessionStatus('connecting');
+        if (typeof details === 'string') {
+          setSessionError(details);
+        }
       } else if (status === 'accepted') {
         setSessionStatus('connected');
         setSessionError(null);
@@ -323,6 +331,30 @@ export default function App() {
 
   const handleConnectToId = (targetId: string, mode: 'desktop' | 'file' | 'terminal' = 'desktop') => {
     const cleanId = targetId.replace(/\s+/g, '');
+    const cleanLocalId = localId.replace(/\s+/g, '');
+
+    if (cleanId === cleanLocalId) {
+      setSessionError(isRtl 
+        ? `⚠️ شما شناسه سیستم فعلی خودتان (${localId}) را وارد کرده‌اید!\n\nدر سامانه مه دسک، برای ریموت زدن باید شناسه کامپیوتر یا سرور مقصد را در این کادر وارد نمایید.\n\nراهنمای تست روی همین سیستم:\nاگر قصد دارید ریموت زدن را روی همین کامپیوتر آزمایش کنید، یک تب جدید در حالت ناشناس (Incognito/Private) یا در مرورگر دیگری باز کنید تا شناسه مجزایی به عنوان سیستم دوم دریافت نمایید.`
+        : `You entered your own Desk ID (${localId})! Please enter the remote computer's ID, or open an Incognito window to test.`);
+      setActiveDevice({
+        id: targetId,
+        name: isRtl ? `سیستم خودتان (${targetId})` : `Your Own Desk (${targetId})`,
+        alias: `${targetId}@desk`,
+        department: 'سیستم محلی',
+        location: 'همین کامپیوتر',
+        os: 'windows' as const,
+        status: 'online' as const,
+        ip: '127.0.0.1',
+        lastSeen: 'هم اکنون',
+        unattendedAccess: false,
+        specs: { cpu: '-', ram: '-', storage: '-', resolution: '-', monitorsCount: 1, osVersion: '-' }
+      });
+      setActiveTab('session');
+      setSessionStatus('error');
+      return;
+    }
+
     const match = devices.find(d => d.id.replace(/\s+/g, '') === cleanId || d.alias.toLowerCase() === targetId.toLowerCase());
 
     const target = match || {

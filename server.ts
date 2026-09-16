@@ -625,6 +625,16 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
 
           console.log(`[WS] Connection request from '${fromNormalized}' to '${targetQuery}' -> Found: ${!!targetHost}`);
 
+          // Prevent connecting to oneself
+          if (targetHost && targetHost.id === fromNormalized) {
+            console.warn(`[WS] Client '${fromNormalized}' tried to connect to itself.`);
+            ws.send(JSON.stringify({
+              type: "connect_error",
+              message: `شما شناسه سیستم فعلی خودتان (${targetQuery}) را وارد کرده‌اید! در مه دسک برای برقراری ارتباط ریموت، باید شناسه کامپیوتر یا سرور مقصد را وارد نمایید. اگر قصد تست دارید، یک پنجره ناشناس (Incognito) باز فرمایید.`
+            }));
+            break;
+          }
+
           if (targetHost && targetHost.ws.readyState === WebSocket.OPEN) {
             targetHost.ws.send(JSON.stringify({
               type: "incoming_connection",
@@ -640,7 +650,7 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
             console.warn(`[WS] Target '${targetQuery}' (normalized: '${normalizeDeskId(targetQuery)}') not found among ${activeClients.size} active clients.`);
             ws.send(JSON.stringify({
               type: "connect_error",
-              message: `کامپیوتر مقصد با شناسه ${targetQuery} هم‌اکنون در سرور آنلاین نیست یا شناسه اشتباه است.`
+              message: `کامپیوتر مقصد با شناسه ${targetQuery} هم‌اکنون در سرور آنلاین نیست. اطمینان حاصل کنید مه دسک در سیستم مقصد باز بوده و چراغ وضعیت آن سبز است.`
             }));
           }
           break;
