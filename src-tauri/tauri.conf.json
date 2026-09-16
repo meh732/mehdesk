@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "AnyDesk-Portable",
-  "version": "8.5.0",
-  "identifier": "com.anydesk.remotehub.portable",
+  "productName": "mehdesk-Portable",
+  "version": "9.0.0",
+  "identifier": "com.mehdesk.remotehub.portable",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:3000",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "AnyDesk Remote Hub - Enterprise Portable",
+        "title": "meh desk - Enterprise Remote Desktop",
         "width": 1280,
         "height": 800,
         "minWidth": 900,

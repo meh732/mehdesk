@@ -100,13 +100,20 @@ export default function App() {
     if (!incomingRequest || !rtcRef.current) return;
     const req = incomingRequest;
     const perms = customPermissions || permissions;
-    rtcRef.current.respondToRequest(req.fromId, true, perms);
-    setIncomingRequest(null);
     
-    // If not already hosting, start host screen share
-    if (!hostStream) {
-      await handleStartHosting();
+    // Acquire screen share first if not already hosting
+    let stream = hostStream;
+    if (!stream) {
+      stream = await handleStartHosting();
     }
+
+    if (rtcRef.current) {
+      if (stream) {
+        rtcRef.current.setLocalStream(stream);
+      }
+      rtcRef.current.respondToRequest(req.fromId, true, perms);
+    }
+    setIncomingRequest(null);
   };
 
   const handleRejectIncomingRequest = () => {
@@ -169,7 +176,7 @@ export default function App() {
   }, []);
 
   // WebRTC Screen Capture for Local Host Broadcaster
-  const handleStartHosting = async () => {
+  const handleStartHosting = async (): Promise<MediaStream | null> => {
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
         const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -190,14 +197,17 @@ export default function App() {
           rtcRef.current.setLocalStream(stream);
         }
         setActiveTab('host');
+        return stream;
       } else {
         setIsHosting(true);
         setActiveTab('host');
+        return null;
       }
     } catch (err) {
       console.warn('Screen share cancelled or not supported:', err);
       setIsHosting(true);
       setActiveTab('host');
+      return null;
     }
   };
 
