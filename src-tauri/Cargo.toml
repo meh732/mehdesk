@@ -4,6 +4,7 @@ version = "8.5.0"
 description = "AnyDesk Enterprise Remote Hub - Standalone Ultra-Lightweight Tauri Desktop Client"
 authors = ["AnyDesk Enterprise Team"]
 edition = "2021"
+build = "build.rs"
 
 [build-dependencies]
 tauri-build = { version = "2.0.0", features = [] }
