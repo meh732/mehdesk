@@ -116,23 +116,27 @@ echo -e "${MAGENTA}Target: x86_64-pc-windows-gnu (Native Windows 64-bit .exe)${N
 
 cd "${PROJECT_ROOT}/src-tauri"
 
-# Tauri build command without invalid --release flag (Tauri build is release by default)
+# Tauri build without invalid --release flag (cargo tauri build runs in release mode by default)
+BUILD_SUCCESS=0
+
 if command -v cargo-tauri &>/dev/null; then
-    echo -e "${YELLOW}Running: cargo tauri build --target x86_64-pc-windows-gnu --no-bundle${NC}"
-    cargo tauri build --target x86_64-pc-windows-gnu --no-bundle || \
-    cargo tauri build --target x86_64-pc-windows-gnu || \
-    cargo build --target x86_64-pc-windows-gnu --release
+    echo -e "${YELLOW}Running: cargo tauri build --target x86_64-pc-windows-gnu${NC}"
+    if cargo tauri build --target x86_64-pc-windows-gnu; then
+        BUILD_SUCCESS=1
+    fi
 elif npx tauri --version &>/dev/null; then
     cd "${PROJECT_ROOT}"
-    echo -e "${YELLOW}Running: npx tauri build --target x86_64-pc-windows-gnu --no-bundle${NC}"
-    npx tauri build --target x86_64-pc-windows-gnu --no-bundle || \
-    npx tauri build --target x86_64-pc-windows-gnu || \
-    (cd src-tauri && cargo build --target x86_64-pc-windows-gnu --release) || true
+    echo -e "${YELLOW}Running: npx tauri build --target x86_64-pc-windows-gnu${NC}"
+    if npx tauri build --target x86_64-pc-windows-gnu; then
+        BUILD_SUCCESS=1
+    fi
     cd "${PROJECT_ROOT}/src-tauri"
-else
-    # Fallback to direct cargo build
-    echo -e "${YELLOW}Running: cargo build --target x86_64-pc-windows-gnu --release${NC}"
-    cargo build --target x86_64-pc-windows-gnu --release
+fi
+
+if [ "$BUILD_SUCCESS" -ne 1 ]; then
+    echo -e "${YELLOW}Running direct Cargo Rust cross-compiler: cargo build --target x86_64-pc-windows-gnu --release${NC}"
+    cd "${PROJECT_ROOT}/src-tauri"
+    cargo build --target x86_64-pc-windows-gnu --release && BUILD_SUCCESS=1 || true
 fi
 
 cd "${PROJECT_ROOT}"

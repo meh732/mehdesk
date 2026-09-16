@@ -252,6 +252,19 @@ app.get("/api/scripts/windows-ps1", (req, res) => {
   }
 });
 
+// API: Cross-compile build script for Windows (.exe) via Tauri
+app.get(["/build-tauri-windows.sh", "/api/scripts/build-tauri-windows"], (req, res) => {
+  const scriptPath = path.join(process.cwd(), "scripts", "build-tauri-windows.sh");
+  if (fs.existsSync(scriptPath)) {
+    const content = fs.readFileSync(scriptPath, "utf8");
+    res.setHeader("Content-Type", "text/x-shellscript");
+    res.setHeader("Content-Disposition", 'attachment; filename="build-tauri-windows.sh"');
+    res.send(content);
+  } else {
+    res.status(404).send("#!/bin/bash\necho 'build-tauri-windows.sh not found on server'");
+  }
+});
+
 // Downloads Static Serving & Direct Windows .exe Route
 app.use("/downloads", express.static(path.join(process.cwd(), "public", "downloads")));
 app.use("/downloads", express.static(path.join(process.cwd(), "dist", "downloads")));
