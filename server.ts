@@ -450,6 +450,36 @@ app.post("/api/ai/script-generator", async (req, res) => {
   }
 });
 
+// Helper to find client by ID (with or without spaces) or by Alias
+function findActiveClient(query: string | undefined): any {
+  if (!query) return null;
+  const clean = query.toString().replace(/\s+/g, "").toLowerCase();
+
+  if (activeClients.has(clean)) {
+    return activeClients.get(clean);
+  }
+
+  for (const client of activeClients.values()) {
+    const cId = (client.id || "").toString().replace(/\s+/g, "").toLowerCase();
+    const cAlias = (client.alias || "").toString().replace(/\s+/g, "").toLowerCase();
+    if (cId === clean || cAlias === clean || cAlias.includes(clean)) {
+      return client;
+    }
+  }
+  return null;
+}
+
+// API endpoint to get list of currently connected online devices
+app.get("/api/online-devices", (req, res) => {
+  const list = Array.from(activeClients.values()).map(c => ({
+    id: c.id,
+    alias: c.alias,
+    isHost: c.isHost,
+    deviceInfo: c.deviceInfo
+  }));
+  res.json({ success: true, count: list.length, devices: list });
+});
+
 // Create HTTP server
 const server = http.createServer(app);
 
@@ -457,11 +487,6 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
 wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
-  const url = req.url || "";
-  if (!url.startsWith("/ws") && !url.startsWith("/ws/signal")) {
-    // Only accept websocket connections on /ws or /ws/signal
-    // Allow root /ws or /ws/signal or query params
-  }
   let peerId: string = "";
 
   ws.on("message", (rawMessage: string) => {
@@ -471,15 +496,22 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
       switch (data.type) {
         // Register client ID (Host or Client)
         case "register": {
-          peerId = data.id;
+          const cleanId = (data.id || "").toString().replace(/\s+/g, "");
+          if (peerId && peerId !== cleanId) {
+            activeClients.delete(peerId);
+          }
+          peerId = cleanId;
+
           activeClients.set(peerId, {
             id: peerId,
             ws,
-            alias: data.alias,
-            isHost: data.isHost,
-            unattendedPassword: data.unattendedPassword,
+            alias: data.alias || `${peerId}@desk`,
+            isHost: !!data.isHost,
+            unattendedPassword: data.unattendedPassword || "",
             deviceInfo: data.deviceInfo
           });
+
+          console.log(`[WS] Client Registered: ${peerId} (${data.alias || 'no-alias'}), Total Active: ${activeClients.size}`);
 
           ws.send(JSON.stringify({
             type: "registered",
@@ -489,16 +521,20 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
           break;
         }
 
-        // Connection request from viewer to host (support both connect_request and request_connect)
+        // Connection request from viewer to host
         case "connect_request":
         case "request_connect": {
-          const targetHost = activeClients.get(data.targetId || data.toId);
+          const targetQuery = data.targetId || data.toId;
+          const targetHost = findActiveClient(targetQuery);
+
+          console.log(`[WS] Connection request from ${data.fromId || data.senderId} to ${targetQuery} -> Found: ${!!targetHost}`);
+
           if (targetHost && targetHost.ws.readyState === WebSocket.OPEN) {
             targetHost.ws.send(JSON.stringify({
               type: "incoming_connection",
-              fromId: data.fromId || data.senderId,
-              fromAlias: data.fromAlias || data.requesterName,
-              fromDevice: data.fromDevice || data.requesterDevice,
+              fromId: (data.fromId || data.senderId || peerId || "").toString().replace(/\s+/g, ""),
+              fromAlias: data.fromAlias || data.requesterName || `Client (${data.fromId})`,
+              fromDevice: data.fromDevice || data.requesterDevice || "Remote Client",
               requestType: data.requestType || "full_control",
               requiresPassword: !!targetHost.unattendedPassword,
               providedPassword: data.providedPassword
@@ -506,7 +542,7 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
           } else {
             ws.send(JSON.stringify({
               type: "connect_error",
-              message: "دستگاه مقصد آفلاین است یا شناسه اشتباه وارد شده است."
+              message: "کامپیوتر مقصد هم‌اکنون آنلاین نیست یا شناسه اشتباه وارد شده است."
             }));
           }
           break;
@@ -514,7 +550,11 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
 
         // Host accepts or rejects connection
         case "connect_response": {
-          const viewer = activeClients.get(data.toId);
+          const targetQuery = data.toId;
+          const viewer = findActiveClient(targetQuery);
+          
+          console.log(`[WS] Connect response for ${targetQuery}: accepted=${data.accepted}`);
+
           if (viewer && viewer.ws.readyState === WebSocket.OPEN) {
             viewer.ws.send(JSON.stringify({
               type: "connection_result",
@@ -524,10 +564,12 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
             }));
 
             if (data.accepted) {
-              if (!rooms.has(data.hostId)) {
-                rooms.set(data.hostId, new Set());
+              const hostId = (data.hostId || peerId).toString().replace(/\s+/g, "");
+              const viewerId = (data.toId).toString().replace(/\s+/g, "");
+              if (!rooms.has(hostId)) {
+                rooms.set(hostId, new Set());
               }
-              rooms.get(data.hostId)?.add(data.toId);
+              rooms.get(hostId)?.add(viewerId);
             }
           }
           break;
@@ -544,9 +586,12 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
         case "whiteboard_draw":
         case "chat_message":
         case "session_control": {
-          const target = activeClients.get(data.targetId);
+          const target = findActiveClient(data.targetId || data.toId);
           if (target && target.ws.readyState === WebSocket.OPEN) {
-            target.ws.send(JSON.stringify(data));
+            target.ws.send(JSON.stringify({
+              ...data,
+              senderId: (data.senderId || peerId || "").toString().replace(/\s+/g, "")
+            }));
           }
           break;
         }
@@ -563,13 +608,13 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
 
   ws.on("close", () => {
     if (peerId) {
+      console.log(`[WS] Client disconnected: ${peerId}`);
       activeClients.delete(peerId);
-      // Clean up rooms
       rooms.delete(peerId);
       for (const [hostId, viewers] of rooms.entries()) {
         if (viewers.has(peerId)) {
           viewers.delete(peerId);
-          const host = activeClients.get(hostId);
+          const host = findActiveClient(hostId);
           if (host && host.ws.readyState === WebSocket.OPEN) {
             host.ws.send(JSON.stringify({
               type: "viewer_disconnected",

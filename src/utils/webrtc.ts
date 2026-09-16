@@ -16,6 +16,9 @@ export class WebRtcClient {
   private onConnectionStatusCallback: ((status: string, details?: any) => void) | null = null;
   private onIncomingRequestCallback: ((request: any) => void) | null = null;
   private localStream: MediaStream | null = null;
+  private pingTimer: any = null;
+  private pendingSignalsQueue: any[] = [];
+  private iceCandidatesQueue: RTCIceCandidateInit[] = [];
 
   constructor(localId: string) {
     this.localId = localId.replace(/\s+/g, '');
@@ -35,6 +38,11 @@ export class WebRtcClient {
   }
 
   private initWebSocket() {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     const wsUrl = `${protocol}//${host}/ws`;
@@ -43,6 +51,7 @@ export class WebRtcClient {
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
+        console.log('[WebRTC] Connected to signaling gateway, registering:', this.localId);
         this.ws?.send(JSON.stringify({
           type: 'register',
           id: this.localId,
@@ -51,27 +60,45 @@ export class WebRtcClient {
           unattendedPassword: localStorage.getItem('mehdesk_password') || ''
         }));
         this.onConnectionStatusCallback?.('connected_to_signaling');
+
+        // Flush any pending signals
+        while (this.pendingSignalsQueue.length > 0) {
+          const item = this.pendingSignalsQueue.shift();
+          this.sendSignal(item);
+        }
+
+        // Start 10s keepalive ping to prevent Nginx/proxy timeout
+        this.pingTimer = setInterval(() => {
+          if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 10000);
       };
 
       this.ws.onmessage = async (event) => {
         try {
           const msg = JSON.parse(event.data);
+          if (msg.type === 'pong') return;
           this.handleSignalingMessage(msg);
         } catch (e) {
-          console.error('WS parse error:', e);
+          console.error('[WebRTC] WS parse error:', e);
         }
       };
 
       this.ws.onclose = () => {
+        if (this.pingTimer) {
+          clearInterval(this.pingTimer);
+          this.pingTimer = null;
+        }
         this.onConnectionStatusCallback?.('disconnected_from_signaling');
-        setTimeout(() => this.initWebSocket(), 3000);
+        setTimeout(() => this.initWebSocket(), 2500);
       };
 
       this.ws.onerror = (err) => {
-        console.warn('WS signaling error:', err);
+        console.warn('[WebRTC] WS signaling socket error:', err);
       };
     } catch (err) {
-      console.error('WebSocket connection failed:', err);
+      console.error('[WebRTC] WebSocket connection failed:', err);
     }
   }
 
@@ -131,8 +158,6 @@ export class WebRtcClient {
       }
     };
   }
-
-  private iceCandidatesQueue: RTCIceCandidateInit[] = [];
 
   private async flushIceCandidatesQueue() {
     if (!this.peerConnection || !this.peerConnection.remoteDescription) return;
@@ -329,6 +354,9 @@ export class WebRtcClient {
   public sendSignal(data: any) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ senderId: this.localId, ...data }));
+    } else {
+      console.log('[WebRTC] Queueing signal while socket connecting:', data.type);
+      this.pendingSignalsQueue.push(data);
     }
   }
 
