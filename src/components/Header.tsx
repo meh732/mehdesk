@@ -28,6 +28,7 @@ interface HeaderProps {
   localId: string;
   isRtl: boolean;
   setIsRtl: (val: boolean) => void;
+  signalingStatus?: 'connected' | 'connecting' | 'disconnected';
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -41,7 +42,8 @@ export const Header: React.FC<HeaderProps> = ({
   isHosting,
   localId,
   isRtl,
-  setIsRtl
+  setIsRtl,
+  signalingStatus = 'connected'
 }) => {
   return (
     <header className="bg-[#161922] border-b border-slate-800/80 px-4 py-2.5 flex items-center justify-between select-none sticky top-0 z-40 shadow-lg shadow-black/20">
@@ -59,9 +61,21 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="font-extrabold text-lg tracking-tight text-white font-['Plus_Jakarta_Sans']">meh desk</span>
               <span className="bg-red-500/20 text-red-400 text-[10px] font-bold px-1.5 py-0.5 rounded border border-red-500/30">v9.0</span>
             </div>
-            <div className="text-[11px] text-slate-400 hidden sm:flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span>{isRtl ? 'آنلاین و آماده اتصال' : 'Online & Ready'}</span>
+            <div className="text-[11px] text-slate-400 hidden sm:flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${
+                signalingStatus === 'connected'
+                  ? 'bg-emerald-500 animate-pulse ring-2 ring-emerald-500/30'
+                  : signalingStatus === 'connecting'
+                  ? 'bg-amber-400 animate-ping'
+                  : 'bg-rose-500'
+              }`}></span>
+              <span>
+                {signalingStatus === 'connected' 
+                  ? (isRtl ? 'متصل به سرور مرکزی' : 'Online & Gateway Synced')
+                  : signalingStatus === 'connecting'
+                  ? (isRtl ? 'در حال اتصال به سرور...' : 'Connecting to Server...')
+                  : (isRtl ? 'سرور قطع است' : 'Disconnected')}
+              </span>
               <span className="text-slate-600 mx-1">|</span>
               <span className="text-slate-300 font-mono font-medium">{localId}</span>
             </div>

@@ -76,10 +76,20 @@ export default function App() {
     allowPrivacyScreen: true
   });
 
+  const [signalingStatus, setSignalingStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connecting');
+
   // Initialize WebRtc Signaling Client
   useEffect(() => {
     const rtc = new WebRtcClient(localId);
     rtcRef.current = rtc;
+
+    rtc.onConnectionStatus((status) => {
+      if (status === 'connected_to_signaling') {
+        setSignalingStatus('connected');
+      } else if (status === 'disconnected_from_signaling') {
+        setSignalingStatus('disconnected');
+      }
+    });
 
     rtc.onRemoteStream((stream) => {
       console.log('Received real remote stream track!');
@@ -308,6 +318,7 @@ export default function App() {
         localId={localId}
         isRtl={isRtl}
         setIsRtl={setIsRtl}
+        signalingStatus={signalingStatus}
       />
 
       {/* Main Content Area */}
