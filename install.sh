@@ -483,14 +483,37 @@ main_interactive_menu() {
             ;;
         2)
             if [ -d "${INSTALL_DIR}" ]; then
-                echo -e "${CYAN}Pulling latest updates...${NC}"
+                echo -e "${CYAN}[1/5] Fetching latest updates from GitHub...${NC}"
                 cd "${INSTALL_DIR}"
-                git fetch --all
-                git reset --hard origin/main || git pull origin main
+                git fetch --unshallow 2>/dev/null || git fetch --all || true
+                
+                echo -e "${CYAN}[2/5] Resetting to latest origin/main...${NC}"
+                git reset --hard origin/main || git pull origin main --force || true
+                
+                echo -e "${CYAN}[3/5] Updating dependencies...${NC}"
                 npm install --production=false
+                
+                echo -e "${CYAN}[4/5] Compiling and building distribution bundle...${NC}"
                 npm run build
+                
+                if [ ! -f "${INSTALL_DIR}/dist/server.cjs" ]; then
+                    echo -e "${YELLOW}[WARN] dist/server.cjs not found after build. Building server standalone...${NC}"
+                    npx esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs || true
+                fi
+
                 create_cli_tool
-                systemctl restart ${SERVICE_NAME}
+                
+                echo -e "${CYAN}[5/5] Reloading and restarting ${SERVICE_NAME} systemd service...${NC}"
+                systemctl daemon-reload
+                systemctl restart ${SERVICE_NAME} || systemctl start ${SERVICE_NAME} || true
+                
+                sleep 2
+                if systemctl is-active --quiet ${SERVICE_NAME}; then
+                    echo -e "${GREEN}[OK] ${SERVICE_NAME} service is active and running!${NC}"
+                else
+                    echo -e "${RED}[WARN] Service is not running. Showing journal logs:${NC}"
+                    journalctl -u ${SERVICE_NAME} -n 20 --no-pager || true
+                fi
 
                 # Automatically configure & link Nginx & SSL if domain is present in .env
                 if [ -f "${INSTALL_DIR}/.env" ]; then
@@ -501,7 +524,7 @@ main_interactive_menu() {
                     fi
                 fi
 
-                echo -e "${GREEN}Update completed successfully.${NC}"
+                echo -e "\n${GREEN}${BOLD}🎉 meh desk update completed successfully.${NC}\n"
             else
                 echo -e "${YELLOW}meh desk is not installed yet. Running installer...${NC}"
                 install_dependencies

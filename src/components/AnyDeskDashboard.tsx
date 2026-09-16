@@ -306,40 +306,6 @@ export const AnyDeskDashboard: React.FC<AnyDeskDashboardProps> = ({
         </div>
       </div>
 
-      {/* QUICK DEPLOYMENT & SERVER SCRIPTS CALLOUT BANNER */}
-      {openDeployModal && (
-        <div className="bg-gradient-to-r from-red-950/40 via-slate-900 to-slate-900 border border-red-500/30 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl">
-          <div className="flex items-center gap-3.5">
-            <div className="w-11 h-11 rounded-xl bg-red-600/20 text-red-400 flex items-center justify-center border border-red-500/30 shrink-0">
-              <Server className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-bold text-sm text-white">
-                  {isRtl ? 'اسکریپت‌های نصب خودکار لینوکس، کلاینت پرتابل Tauri و ویندوز' : 'Automated Linux Server Suite, Tauri Portable & Windows Installer'}
-                </h3>
-                <span className="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded border border-emerald-500/30">
-                  Ready
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-0.5">
-                {isRtl 
-                  ? 'شامل نصب با پورت و SSL دلخواه، آپدیت بدون از بین رفتن داده، آنیستال با بکاپ خودکار به ربات بله و تلگرام، و بیلد پرتابل Tauri'
-                  : 'Zero-data-loss upgrades, automated Telegram/Bale bot backups, custom port/SSL, and Tauri portable client.'}
-              </p>
-            </div>
-          </div>
-
-          <button
-            onClick={openDeployModal}
-            className="w-full sm:w-auto bg-red-600 hover:bg-red-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-red-600/30 transition-all shrink-0"
-          >
-            <Server className="w-4 h-4" />
-            <span>{isRtl ? 'مدیریت و دریافت اسکریپت‌ها' : 'Open Deployment Suite'}</span>
-          </button>
-        </div>
-      )}
-
       {/* SECTION: COMPANY FLEET ADDRESS BOOK & SAVED OFFICE COMPUTERS */}
       <div className="bg-[#161922] border border-slate-800 rounded-2xl p-5 shadow-xl space-y-5">
         {/* Header & Category Filters */}

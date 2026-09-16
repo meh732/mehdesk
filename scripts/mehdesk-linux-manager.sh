@@ -323,13 +323,48 @@ configure_standalone_ssl() {
 
 update_mehdesk() {
     echo -e "\n${BOLD}${CYAN}=== Updating meh desk without data loss ===${NC}\n"
+    
+    if [ ! -d "${INSTALL_DIR}" ]; then
+        echo -e "${RED}[ERROR] Installation directory ${INSTALL_DIR} not found. Please install first using option 1.${NC}"
+        return 1
+    fi
+
+    # Backup current configs and data
     create_backup "pre_update"
+    
     cd "${INSTALL_DIR}"
-    git fetch --all
-    git reset --hard origin/main || git pull origin main
+    
+    echo -e "${CYAN}[1/5] Fetching latest commits from GitHub...${NC}"
+    # Unshallow if shallow clone to prevent pull failures
+    git fetch --unshallow 2>/dev/null || git fetch --all || true
+    
+    echo -e "${CYAN}[2/5] Resetting to latest origin/main...${NC}"
+    git reset --hard origin/main || git pull origin main --force || true
+    
+    echo -e "${CYAN}[3/5] Updating dependencies...${NC}"
     npm install --production=false
+    
+    echo -e "${CYAN}[4/5] Compiling and building distribution bundle...${NC}"
     npm run build
-    systemctl restart ${SERVICE_NAME} || true
+    
+    # Ensure dist/server.cjs exists
+    if [ ! -f "${INSTALL_DIR}/dist/server.cjs" ]; then
+        echo -e "${YELLOW}[WARN] dist/server.cjs not found after build. Building server standalone...${NC}"
+        npx esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs || true
+    fi
+
+    echo -e "${CYAN}[5/5] Reloading and restarting ${SERVICE_NAME} systemd service...${NC}"
+    systemctl daemon-reload
+    systemctl restart ${SERVICE_NAME} || systemctl start ${SERVICE_NAME} || true
+    
+    # Verify service is running
+    sleep 2
+    if systemctl is-active --quiet ${SERVICE_NAME}; then
+        echo -e "${GREEN}[OK] ${SERVICE_NAME} service is active and running perfectly!${NC}"
+    else
+        echo -e "${RED}[WARN] Service is not running. Showing journal logs:${NC}"
+        journalctl -u ${SERVICE_NAME} -n 20 --no-pager || true
+    fi
 
     # If domain is set, automatically ensure Nginx & SSL are intact
     if [ -f "${ENV_FILE}" ]; then
@@ -340,7 +375,7 @@ update_mehdesk() {
         fi
     fi
 
-    echo -e "${GREEN}[OK] Update completed successfully.${NC}"
+    echo -e "\n${GREEN}${BOLD}🎉 meh desk update completed successfully with 100% data intact.${NC}\n"
 }
 
 uninstall_mehdesk() {

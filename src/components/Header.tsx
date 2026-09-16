@@ -118,24 +118,14 @@ export const Header: React.FC<HeaderProps> = ({
         {/* PWA Direct Install Button for Phone / PC */}
         <PWAInstallButton isRtl={isRtl} />
 
-        {/* Admin Settings & Bot Console Button */}
+        {/* Admin Settings & Bot Console Button (Protected by PIN) */}
         <button
           onClick={openAdminModal}
           className="flex items-center gap-1.5 bg-gradient-to-r from-red-950/60 to-slate-900 hover:bg-red-900/50 border border-red-500/40 text-red-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-sm group"
-          title={isRtl ? 'پنل ادمین، ربات‌های بله/تلگرام و بکاپ' : 'Admin Console, Bale/Telegram Bots & Backup'}
+          title={isRtl ? 'پنل اختصاصی ادمین (نیازمند پین‌کد)' : 'Admin Console (PIN Protected)'}
         >
           <ShieldAlert className="w-3.5 h-3.5 text-red-400 group-hover:scale-110 transition-transform" />
-          <span className="hidden sm:inline">{isRtl ? 'پنل ادمین و بات‌ها' : 'Admin Bots'}</span>
-        </button>
-
-        {/* Linux / Windows Deployment Suite Button */}
-        <button
-          onClick={openDeployModal}
-          className="flex items-center gap-1.5 bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-sm group"
-          title={isRtl ? 'اسکریپت‌های نصب لینوکس، نسخه پورتابل Tauri و نصاب ویندوز' : 'Server Deployment Scripts & Tauri Suite'}
-        >
-          <Server className="w-3.5 h-3.5 text-slate-400 group-hover:scale-110 transition-transform" />
-          <span className="hidden lg:inline">{isRtl ? 'اسکریپت و نصب سرور' : 'Deploy & Scripts'}</span>
+          <span className="hidden sm:inline">{isRtl ? 'پنل ادمین' : 'Admin'}</span>
         </button>
 
         {/* Mobile Quick Connect Button */}

@@ -18,6 +18,7 @@ import {
   Sliders, 
   Server, 
   Smartphone,
+  Package,
   Eye,
   EyeOff
 } from 'lucide-react';
@@ -665,6 +666,33 @@ export const AdminSettingsModal: React.FC<AdminSettingsModalProps> = ({
                         title="کپی دستور"
                       >
                         {copiedScript === 'windows' ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Tauri Windows Native Client */}
+                  <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-bold text-slate-100 flex items-center gap-2">
+                        <Package className="w-4 h-4 text-purple-400" />
+                        <span>{isRtl ? 'کلاینت مستقل ویندوز (Tauri / Rust)' : 'Tauri Windows Standalone Client'}</span>
+                      </h4>
+                    </div>
+
+                    <p className="text-[11px] text-slate-400">
+                      {isRtl 
+                        ? 'برای بیلد مستقیم فایل اجرایی (.exe) کلاینت نیتیو ویندوز در لینوکس یا ویندوز:'
+                        : 'To build the native standalone Windows portable (.exe) binary with Tauri/Rust:'}
+                    </p>
+
+                    <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 font-mono text-[11px] text-purple-300 flex items-center justify-between gap-3 overflow-x-auto">
+                      <code>cargo tauri build</code>
+                      <button
+                        onClick={() => copyToClipboard('cargo tauri build', 'tauri')}
+                        className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white shrink-0 transition-colors"
+                        title="کپی دستور"
+                      >
+                        {copiedScript === 'tauri' ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
                       </button>
                     </div>
                   </div>
