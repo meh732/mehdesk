@@ -242,6 +242,7 @@ setup_nginx_ssl() {
     cat <<EOF > /etc/nginx/sites-available/mehdesk.conf
 server {
     listen 80;
+    listen [::]:80;
     server_name ${domain};
 
     location / {
@@ -260,14 +261,16 @@ server {
 }
 EOF
 
-    mkdir -p /etc/nginx/sites-enabled
+    mkdir -p /etc/nginx/sites-enabled /etc/nginx/conf.d
     ln -sf /etc/nginx/sites-available/mehdesk.conf /etc/nginx/sites-enabled/mehdesk.conf
-    rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+    # Also write to conf.d for CentOS/RHEL/AlmaLinux compatibility
+    cp -f /etc/nginx/sites-available/mehdesk.conf /etc/nginx/conf.d/mehdesk.conf 2>/dev/null || true
+    rm -f /etc/nginx/sites-enabled/default /etc/nginx/conf.d/default.conf 2>/dev/null || true
 
     # Test nginx configuration
     if nginx -t; then
-        systemctl restart nginx
-        systemctl enable nginx
+        systemctl restart nginx || systemctl reload nginx
+        systemctl enable nginx 2>/dev/null || true
         echo -e "${GREEN}[OK] Nginx reverse proxy configured.${NC}"
     else
         echo -e "${RED}[ERROR] Nginx configuration test failed.${NC}"
@@ -278,19 +281,15 @@ EOF
     if command -v ufw &>/dev/null; then
         ufw allow 80/tcp || true
         ufw allow 443/tcp || true
+    elif command -v firewall-cmd &>/dev/null; then
+        firewall-cmd --permanent --add-service=http || true
+        firewall-cmd --permanent --add-service=https || true
+        firewall-cmd --reload || true
     fi
 
     # Request Let's Encrypt SSL Certificate
     echo -e "${CYAN}[SSL] Requesting Free Let's Encrypt SSL Certificate for ${domain}...${NC}"
-    read -p "Enter email for SSL expiration notices (e.g. admin@yourdomain.com): " SSL_EMAIL
-    local email_param=""
-    if [ -n "$SSL_EMAIL" ]; then
-        email_param="--email ${SSL_EMAIL}"
-    else
-        email_param="--register-unsafely-without-email"
-    fi
-
-    certbot --nginx -d "${domain}" --non-interactive --agree-tos ${email_param} --redirect || {
+    certbot --nginx -d "${domain}" --non-interactive --agree-tos --register-unsafely-without-email --redirect || {
         echo -e "${YELLOW}[WARN] Automatic Certbot SSL configuration failed.${NC}"
         echo -e "${YELLOW}Reason: Make sure your Domain DNS (A Record) points to this server IP before requesting SSL.${NC}"
         echo -e "${YELLOW}You can re-run SSL setup anytime from menu option 3.${NC}"
