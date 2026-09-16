@@ -175,16 +175,29 @@ show_menu() {
             npm run build
             systemctl restart ${SERVICE_NAME}
 
-            # If domain is present in .env, automatically repair Nginx & SSL configuration
+            # Automatically detect domain from .env, Nginx configs, or certbot certificates
+            local detected_domain=""
             if [ -f "${INSTALL_DIR}/.env" ]; then
                 source "${INSTALL_DIR}/.env"
-                if [ -n "$DOMAIN" ]; then
-                    echo -e "\n${CYAN}Detected domain '${DOMAIN}' in .env. Checking & updating Nginx and SSL...${NC}"
-                    setup_domain_ssl "$DOMAIN"
-                fi
+                detected_domain="${DOMAIN:-}"
             fi
 
-            echo -e "${GREEN}Update completed successfully.${NC}"
+            if [ -z "$detected_domain" ] && [ -f "/etc/nginx/sites-available/mehdesk.conf" ]; then
+                detected_domain=$(grep -m 1 "server_name" /etc/nginx/sites-available/mehdesk.conf 2>/dev/null | awk '{print $2}' | tr -d ';')
+            fi
+
+            if [ -z "$detected_domain" ] && command -v certbot &>/dev/null; then
+                detected_domain=$(certbot certificates 2>/dev/null | grep "Certificate Name:" | head -n 1 | awk '{print $3}')
+            fi
+
+            if command -v nginx &>/dev/null && [ -n "$detected_domain" ] && [ "$detected_domain" != "_" ]; then
+                echo -e "\n${CYAN}Auto-refreshing Nginx WebSockets & SSL proxy for '${detected_domain}'...${NC}"
+                setup_domain_ssl "$detected_domain"
+            elif command -v nginx &>/dev/null && [ -f "/etc/nginx/sites-available/mehdesk.conf" ]; then
+                nginx -t >/dev/null 2>&1 && systemctl reload nginx 2>/dev/null || true
+            fi
+
+            echo -e "${GREEN}Update completed successfully! All services & WebSockets refreshed.${NC}"
             sleep 2
             show_menu
             ;;
@@ -284,16 +297,35 @@ setup_domain_ssl() {
     mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/conf.d
 
     cat << NGINX_CONF > /etc/nginx/sites-available/mehdesk.conf
+map \$http_upgrade \$connection_upgrade {
+    default upgrade;
+    '' close;
+}
+
 server {
     listen 80;
     listen [::]:80;
     server_name ${target_domain};
 
+    location /ws {
+        proxy_pass http://127.0.0.1:${current_port};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$connection_upgrade;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+        proxy_buffering off;
+    }
+
     location / {
         proxy_pass http://127.0.0.1:${current_port};
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
+        proxy_set_header Connection \$connection_upgrade;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -515,16 +547,30 @@ main_interactive_menu() {
                     journalctl -u ${SERVICE_NAME} -n 20 --no-pager || true
                 fi
 
-                # Automatically configure & link Nginx & SSL if domain is present in .env
+                # Automatically detect domain from .env, Nginx configs, or certbot certificates
+                local detected_domain=""
                 if [ -f "${INSTALL_DIR}/.env" ]; then
                     source "${INSTALL_DIR}/.env"
-                    if [ -n "$DOMAIN" ]; then
-                        echo -e "\n${CYAN}Detected domain '${DOMAIN}' in .env. Updating Nginx & SSL configuration...${NC}"
-                        setup_domain_ssl "$DOMAIN"
-                    fi
+                    detected_domain="${DOMAIN:-}"
                 fi
 
-                echo -e "\n${GREEN}${BOLD}🎉 meh desk update completed successfully.${NC}\n"
+                if [ -z "$detected_domain" ] && [ -f "/etc/nginx/sites-available/mehdesk.conf" ]; then
+                    detected_domain=$(grep -m 1 "server_name" /etc/nginx/sites-available/mehdesk.conf 2>/dev/null | awk '{print $2}' | tr -d ';')
+                fi
+
+                if [ -z "$detected_domain" ] && command -v certbot &>/dev/null; then
+                    detected_domain=$(certbot certificates 2>/dev/null | grep "Certificate Name:" | head -n 1 | awk '{print $3}')
+                fi
+
+                if command -v nginx &>/dev/null && [ -n "$detected_domain" ] && [ "$detected_domain" != "_" ]; then
+                    echo -e "\n${CYAN}[6/6] Auto-refreshing Nginx WebSockets & SSL proxy for '${detected_domain}'...${NC}"
+                    setup_domain_ssl "$detected_domain"
+                elif command -v nginx &>/dev/null && [ -f "/etc/nginx/sites-available/mehdesk.conf" ]; then
+                    echo -e "\n${CYAN}[6/6] Reloading Nginx reverse proxy...${NC}"
+                    nginx -t >/dev/null 2>&1 && systemctl reload nginx 2>/dev/null || true
+                fi
+
+                echo -e "\n${GREEN}${BOLD}🎉 meh desk update completed successfully! All services & WebSockets updated.${NC}\n"
             else
                 echo -e "${YELLOW}meh desk is not installed yet. Running installer...${NC}"
                 install_dependencies
