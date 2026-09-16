@@ -545,9 +545,9 @@ export const DeploymentManagerModal: React.FC<DeploymentManagerModalProps> = ({
                       {isRtl ? '۲. دستور مستقیم Cargo Tauri (تارگت اختصاصی Windows GNU):' : '2. Direct Cargo Tauri command:'}
                     </span>
                     <div className="bg-black/90 p-3 rounded-xl border border-slate-800 font-mono text-xs text-amber-400 flex items-center justify-between">
-                      <code>cargo tauri build --target x86_64-pc-windows-gnu --release --no-bundle</code>
+                      <code>cargo tauri build --target x86_64-pc-windows-gnu --no-bundle</code>
                       <button
-                        onClick={() => handleCopyCmd('cargo tauri build --target x86_64-pc-windows-gnu --release --no-bundle', 'script')}
+                        onClick={() => handleCopyCmd('cargo tauri build --target x86_64-pc-windows-gnu --no-bundle', 'script')}
                         className="p-1.5 bg-slate-800 text-slate-300 rounded hover:bg-slate-700"
                         title="کپی"
                       >

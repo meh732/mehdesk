@@ -48,6 +48,18 @@ check_root() {
     fi
 }
 
+get_clean_ip() {
+    local candidate=""
+    for api in "https://api.ipify.org" "https://ipv4.icanhazip.com" "https://ifconfig.co" "https://ident.me"; do
+        candidate=$(curl -s4 -m 3 "$api" 2>/dev/null | tr -d '[:space:]' || true)
+        if [[ "$candidate" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+    hostname -I 2>/dev/null | awk '{print $1}' || echo "127.0.0.1"
+}
+
 send_to_telegram() {
     local bot_token="$1"
     local chat_id="$2"
@@ -210,7 +222,7 @@ EOF
         ufw allow 443/tcp || true
     fi
 
-    SERVER_IP=$(curl -s4 icanhazip.com || curl -s4 ifconfig.me || hostname -I | awk '{print $1}')
+    SERVER_IP=$(get_clean_ip)
 
     if [ -n "$DOMAIN" ]; then
         setup_nginx_ssl "$DOMAIN" "$PORT"

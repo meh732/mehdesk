@@ -49,6 +49,18 @@ check_root() {
     fi
 }
 
+get_clean_ip() {
+    local candidate=""
+    for api in "https://api.ipify.org" "https://ipv4.icanhazip.com" "https://ifconfig.co" "https://ident.me"; do
+        candidate=$(curl -s4 -m 3 "$api" 2>/dev/null | tr -d '[:space:]' || true)
+        if [[ "$candidate" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+    hostname -I 2>/dev/null | awk '{print $1}' || echo "127.0.0.1"
+}
+
 detect_os() {
     if [ -f /etc/os-release ]; then
         . /etc/os-release
@@ -575,7 +587,7 @@ EOF
     fi
 
     # Detect IP
-    SERVER_IP=$(curl -s4 icanhazip.com || curl -s4 ifconfig.me || hostname -I | awk '{print $1}')
+    SERVER_IP=$(get_clean_ip)
 
     echo -e "\n${GREEN}${BOLD}===================================================================${NC}"
     echo -e "${GREEN}${BOLD}🎉 meh desk successfully installed and running!${NC}"

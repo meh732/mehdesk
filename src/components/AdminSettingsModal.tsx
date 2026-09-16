@@ -698,9 +698,9 @@ export const AdminSettingsModal: React.FC<AdminSettingsModalProps> = ({
                       </div>
 
                       <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 font-mono text-[11px] text-purple-300 flex items-center justify-between gap-3 overflow-x-auto">
-                        <code>cargo tauri build --target x86_64-pc-windows-gnu --release</code>
+                        <code>cargo tauri build --target x86_64-pc-windows-gnu --no-bundle</code>
                         <button
-                          onClick={() => copyToClipboard('cargo tauri build --target x86_64-pc-windows-gnu --release', 'tauri')}
+                          onClick={() => copyToClipboard('cargo tauri build --target x86_64-pc-windows-gnu --no-bundle', 'tauri')}
                           className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white shrink-0 transition-colors"
                           title="کپی دستور"
                         >

@@ -116,34 +116,39 @@ echo -e "${MAGENTA}Target: x86_64-pc-windows-gnu (Native Windows 64-bit .exe)${N
 
 cd "${PROJECT_ROOT}/src-tauri"
 
-# Run build targeting Windows GNU
+# Tauri build command without invalid --release flag (Tauri build is release by default)
 if command -v cargo-tauri &>/dev/null; then
-    cargo tauri build --target x86_64-pc-windows-gnu --release || \
-    cargo tauri build --target x86_64-pc-windows-gnu --release --no-bundle || true
+    echo -e "${YELLOW}Running: cargo tauri build --target x86_64-pc-windows-gnu --no-bundle${NC}"
+    cargo tauri build --target x86_64-pc-windows-gnu --no-bundle || \
+    cargo tauri build --target x86_64-pc-windows-gnu || \
+    cargo build --target x86_64-pc-windows-gnu --release
 elif npx tauri --version &>/dev/null; then
     cd "${PROJECT_ROOT}"
-    npx tauri build --target x86_64-pc-windows-gnu --release || \
-    npx tauri build --target x86_64-pc-windows-gnu --release --no-bundle || true
+    echo -e "${YELLOW}Running: npx tauri build --target x86_64-pc-windows-gnu --no-bundle${NC}"
+    npx tauri build --target x86_64-pc-windows-gnu --no-bundle || \
+    npx tauri build --target x86_64-pc-windows-gnu || \
+    (cd src-tauri && cargo build --target x86_64-pc-windows-gnu --release) || true
     cd "${PROJECT_ROOT}/src-tauri"
 else
     # Fallback to direct cargo build
+    echo -e "${YELLOW}Running: cargo build --target x86_64-pc-windows-gnu --release${NC}"
     cargo build --target x86_64-pc-windows-gnu --release
 fi
 
 cd "${PROJECT_ROOT}"
 
-# 9. Locate generated Windows .exe file
+# 9. Locate generated Windows .exe file (find any generated .exe)
 WINDOWS_EXE=""
-if [ -f "${PROJECT_ROOT}/src-tauri/target/x86_64-pc-windows-gnu/release/mehdesk-portable.exe" ]; then
-    WINDOWS_EXE="${PROJECT_ROOT}/src-tauri/target/x86_64-pc-windows-gnu/release/mehdesk-portable.exe"
-elif [ -f "${PROJECT_ROOT}/src-tauri/target/x86_64-pc-windows-gnu/release/mehdesk-Portable.exe" ]; then
-    WINDOWS_EXE="${PROJECT_ROOT}/src-tauri/target/x86_64-pc-windows-gnu/release/mehdesk-Portable.exe"
-elif [ -f "${PROJECT_ROOT}/src-tauri/target/x86_64-pc-windows-gnu/release/anydesk-remote-portable.exe" ]; then
-    WINDOWS_EXE="${PROJECT_ROOT}/src-tauri/target/x86_64-pc-windows-gnu/release/anydesk-remote-portable.exe"
+if [ -d "${PROJECT_ROOT}/src-tauri/target/x86_64-pc-windows-gnu/release" ]; then
+    WINDOWS_EXE=$(find "${PROJECT_ROOT}/src-tauri/target/x86_64-pc-windows-gnu/release" -maxdepth 1 -name "*.exe" 2>/dev/null | head -n 1 || true)
+fi
+
+if [ -z "$WINDOWS_EXE" ] && [ -d "${PROJECT_ROOT}/target/x86_64-pc-windows-gnu/release" ]; then
+    WINDOWS_EXE=$(find "${PROJECT_ROOT}/target/x86_64-pc-windows-gnu/release" -maxdepth 1 -name "*.exe" 2>/dev/null | head -n 1 || true)
 fi
 
 # Check NSIS installer as well
-NSIS_EXE=$(find "${PROJECT_ROOT}/src-tauri/target/x86_64-pc-windows-gnu/release/bundle/nsis" -name "*.exe" 2>/dev/null | head -n 1 || true)
+NSIS_EXE=$(find "${PROJECT_ROOT}/src-tauri/target/x86_64-pc-windows-gnu/release/bundle" -name "*.exe" 2>/dev/null | head -n 1 || true)
 
 mkdir -p "${PROJECT_ROOT}/public/downloads"
 mkdir -p "${PROJECT_ROOT}/dist/downloads"
@@ -175,12 +180,24 @@ elif [ -n "$NSIS_EXE" ] && [ -f "$NSIS_EXE" ]; then
     FILE_SIZE=$(du -h "$NSIS_EXE" | awk '{print $1}')
     echo -e "\n${GREEN}${BOLD}🎉 Windows NSIS Setup .exe generated: ${NSIS_EXE} (${FILE_SIZE})${NC}"
 else
-    echo -e "\n${YELLOW}[INFO] Full Rust build finished or completed in target directory.${NC}"
-    echo -e "${YELLOW}Checking downloads directory...${NC}"
+    echo -e "\n${RED}[WARN] No .exe file was found in target/x86_64-pc-windows-gnu/release.${NC}"
+    echo -e "${YELLOW}Check the build logs above for any Rust/MinGW linker issues.${NC}"
 fi
 
-# Detect domain or server IP for download URL
-SERVER_IP=$(curl -s4 ifconfig.me || curl -s4 icanhazip.com || hostname -I | awk '{print $1}')
+# Robust Clean Public IP Detection (No HTML / 403 responses)
+get_clean_ip() {
+    local candidate=""
+    for api in "https://api.ipify.org" "https://ipv4.icanhazip.com" "https://ifconfig.co" "https://ident.me"; do
+        candidate=$(curl -s4 -m 3 "$api" 2>/dev/null | tr -d '[:space:]' || true)
+        if [[ "$candidate" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+    hostname -I 2>/dev/null | awk '{print $1}' || echo "127.0.0.1"
+}
+
+SERVER_IP=$(get_clean_ip)
 SERVER_PORT="3000"
 if [ -f "${PROJECT_ROOT}/.env" ]; then
     SERVER_PORT=$(grep "^PORT=" "${PROJECT_ROOT}/.env" | cut -d '=' -f2 | tr -d '"' | tr -d "'" || echo "3000")

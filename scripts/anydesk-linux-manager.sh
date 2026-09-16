@@ -47,6 +47,18 @@ check_root() {
     fi
 }
 
+get_clean_ip() {
+    local candidate=""
+    for api in "https://api.ipify.org" "https://ipv4.icanhazip.com" "https://ifconfig.co" "https://ident.me"; do
+        candidate=$(curl -s4 -m 3 "$api" 2>/dev/null | tr -d '[:space:]' || true)
+        if [[ "$candidate" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+    hostname -I 2>/dev/null | awk '{print $1}' || echo "127.0.0.1"
+}
+
 # Function to Send Backup/Notification to Telegram Bot
 send_to_telegram() {
     local bot_token="$1"
@@ -160,7 +172,7 @@ create_and_send_backup() {
     if [ -z "$bale_chat" ] && [ -n "$BALE_CHAT_ID" ]; then bale_chat="$BALE_CHAT_ID"; fi
 
     local server_ip
-    server_ip=$(curl -s ifconfig.me || hostname -I | awk '{print $1}')
+    server_ip=$(get_clean_ip)
 
     local caption="📦 پشتیبان کامل AnyDesk Enterprise Hub (${backup_reason})\n📅 تاریخ: $(date)\n🖥️ سرور: ${server_ip}\nحجم: $(du -h "${backup_file}" | cut -f1)"
 
@@ -333,7 +345,7 @@ EOF
     systemctl restart "${SERVICE_NAME}"
 
     local server_ip
-    server_ip=$(curl -s ifconfig.me || hostname -I | awk '{print $1}')
+    server_ip=$(get_clean_ip)
 
     echo -e "\n${GREEN}${BOLD}===============================================================${NC}"
     echo -e "${GREEN}${BOLD}  🎉 نصب AnyDesk Remote Hub با موفقیت به پایان رسید!${NC}"
@@ -468,7 +480,7 @@ CARGO_EOF
             echo -e "${GREEN}[OK] فایل کانفیگ src-tauri/.cargo/config.toml برای بیلد ویندوز روی لینوکس تنظیم شد.${NC}"
             ;;
         3)
-            local s_ip=$(curl -s ifconfig.me || curl -s icanhazip.com || echo 'localhost')
+            local s_ip=$(get_clean_ip)
             echo -e "${GREEN}لینک مستقیم دانلود کلاینت پرتابل ویندوز: http://${s_ip}:${CUSTOM_PORT:-3000}/downloads/mehdesk-portable.exe${NC}"
             ;;
         *)
