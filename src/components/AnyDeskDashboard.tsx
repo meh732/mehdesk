@@ -96,11 +96,9 @@ export const AnyDeskDashboard: React.FC<AnyDeskDashboardProps> = ({
   };
 
   const categories = [
-    { id: 'all', label: isRtl ? 'همه سیستم‌های شرکت' : 'All Office Desks', count: devices.length },
+    { id: 'all', label: isRtl ? 'همه سیستم‌های ذخیره‌شده' : 'All Saved Desks', count: devices.length },
     { id: 'favorites', label: isRtl ? 'علاقه‌مندی‌ها' : 'Favorites', count: devices.filter(d => d.isFavorite).length },
-    { id: 'tehran', label: isRtl ? 'دفتر مرکزی تهران' : 'Tehran HQ', count: devices.filter(d => d.location.includes('تهران')).length },
-    { id: 'branches', label: isRtl ? 'شعب شهرستان (اصفهان / تبریز)' : 'Branches', count: devices.filter(d => !d.location.includes('تهران')).length },
-    { id: 'servers', label: isRtl ? 'اتاق سرور و IT' : 'Servers & DataCenter', count: devices.filter(d => d.department.includes('IT') || d.os === 'linux').length },
+    { id: 'online', label: isRtl ? 'سیستم‌های آنلاین' : 'Online Devices', count: devices.filter(d => d.status === 'online').length },
   ];
 
   const filteredDevices = devices.filter(d => {
@@ -111,9 +109,7 @@ export const AnyDeskDashboard: React.FC<AnyDeskDashboardProps> = ({
 
     if (!matchesSearch) return false;
     if (activeCategory === 'favorites') return d.isFavorite;
-    if (activeCategory === 'tehran') return d.location.includes('تهران');
-    if (activeCategory === 'branches') return !d.location.includes('تهران');
-    if (activeCategory === 'servers') return d.department.includes('IT') || d.os === 'linux';
+    if (activeCategory === 'online') return d.status === 'online';
     return true;
   });
 
@@ -404,109 +400,134 @@ export const AnyDeskDashboard: React.FC<AnyDeskDashboardProps> = ({
           ))}
         </div>
 
-        {/* Workstations Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredDevices.map((device) => {
-            const isOnline = device.status === 'online';
-            const isBusy = device.status === 'busy';
+        {/* Workstations Grid or Clean Empty State */}
+        {filteredDevices.length === 0 ? (
+          <div className="bg-slate-900/50 border border-dashed border-slate-800 rounded-2xl p-10 text-center flex flex-col items-center justify-center space-y-3">
+            <div className="w-14 h-14 rounded-2xl bg-slate-800/80 border border-slate-700/60 flex items-center justify-center text-slate-500">
+              <Monitor className="w-7 h-7 text-slate-400" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-slate-200">
+                {isRtl ? 'هیچ سیستمی در دیتابیس ثبت نشده است' : 'No Devices in Database'}
+              </h4>
+              <p className="text-xs text-slate-400 max-w-sm mt-1">
+                {isRtl
+                  ? 'دیتابیس سیستم خام است. می‌توانید با زدن دکمه «افزودن سیستم» سیستم‌های جدید را ذخیره کرده یا با وارد کردن کد ۹ رقمی در کادر بالا مستقیماً متصل شوید.'
+                  : 'Clean database initialized. Connect directly using 9-digit code above or click "Add Machine" to save remote desks.'}
+              </p>
+            </div>
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="mt-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+            >
+              <Plus className="w-4 h-4 text-red-400" />
+              <span>{isRtl ? 'افزودن اولین سیستم' : 'Add First Device'}</span>
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredDevices.map((device) => {
+              const isOnline = device.status === 'online';
+              const isBusy = device.status === 'busy';
 
-            return (
-              <div
-                key={device.id}
-                onClick={() => onConnectToDevice(device)}
-                className="bg-slate-900/90 hover:bg-slate-900 border border-slate-800/80 hover:border-red-500/50 rounded-2xl p-4 transition-all shadow-md hover:shadow-xl hover:scale-[1.01] cursor-pointer group flex flex-col justify-between space-y-4"
-              >
-                {/* Card Top: OS, Status & Favorite */}
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center border border-slate-700 group-hover:scale-105 transition-transform">
-                      {getOsIcon(device.os)}
-                    </div>
-                    <div>
-                      <div className="font-bold text-sm text-slate-100 group-hover:text-red-400 transition-colors line-clamp-1">
-                        {device.name}
+              return (
+                <div
+                  key={device.id}
+                  onClick={() => onConnectToDevice(device)}
+                  className="bg-slate-900/90 hover:bg-slate-900 border border-slate-800/80 hover:border-red-500/50 rounded-2xl p-4 transition-all shadow-md hover:shadow-xl hover:scale-[1.01] cursor-pointer group flex flex-col justify-between space-y-4"
+                >
+                  {/* Card Top: OS, Status & Favorite */}
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center border border-slate-700 group-hover:scale-105 transition-transform">
+                        {getOsIcon(device.os)}
                       </div>
-                      <div className="text-[11px] font-mono text-slate-400 flex items-center gap-1">
-                        <span>{device.id}</span>
-                        <span className="text-slate-600">•</span>
-                        <span className="text-slate-400">{device.alias}</span>
+                      <div>
+                        <div className="font-bold text-sm text-slate-100 group-hover:text-red-400 transition-colors line-clamp-1">
+                          {device.name}
+                        </div>
+                        <div className="text-[11px] font-mono text-slate-400 flex items-center gap-1">
+                          <span>{device.id}</span>
+                          <span className="text-slate-600">•</span>
+                          <span className="text-slate-400">{device.alias}</span>
+                        </div>
                       </div>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <span className={`w-2.5 h-2.5 rounded-full ${
+                        isOnline ? 'bg-emerald-500 animate-pulse' : isBusy ? 'bg-amber-500' : 'bg-slate-600'
+                      }`} title={device.lastSeen}></span>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1">
-                    <span className={`w-2.5 h-2.5 rounded-full ${
-                      isOnline ? 'bg-emerald-500 animate-pulse' : isBusy ? 'bg-amber-500' : 'bg-slate-600'
-                    }`} title={device.lastSeen}></span>
-                  </div>
-                </div>
-
-                {/* Card Middle: Specs & Location Badges */}
-                <div className="space-y-2 text-[11px] text-slate-400 bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/60 font-mono">
-                  <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-1 text-slate-300">
-                      <MapPin className="w-3 h-3 text-red-400" />
-                      <span className="font-sans">{device.location}</span>
-                    </span>
-                    <span className="text-emerald-400">{device.ip}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[10px] text-slate-500">
-                    <span>{device.specs.cpu}</span>
-                    <span>{device.specs.ram}</span>
-                  </div>
-                </div>
-
-                {/* Card Bottom: Quick Actions (Connect, Files, Terminal, WoL) */}
-                <div className="flex items-center justify-between pt-1 border-t border-slate-800/60" onClick={(e) => e.stopPropagation()}>
-                  <div className="flex items-center gap-1 text-xs">
-                    {device.unattendedAccess && (
-                      <span className="flex items-center gap-1 text-emerald-400 bg-emerald-950/40 border border-emerald-800/40 text-[10px] px-2 py-0.5 rounded-full font-sans">
-                        <Key className="w-2.5 h-2.5" />
-                        <span>{isRtl ? 'اتصال خودکار' : 'Unattended'}</span>
+                  {/* Card Middle: Specs & Location Badges */}
+                  <div className="space-y-2 text-[11px] text-slate-400 bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/60 font-mono">
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-1 text-slate-300">
+                        <MapPin className="w-3 h-3 text-red-400" />
+                        <span className="font-sans">{device.location}</span>
                       </span>
-                    )}
+                      <span className="text-emerald-400">{device.ip}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] text-slate-500">
+                      <span>{device.specs.cpu}</span>
+                      <span>{device.specs.ram}</span>
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-1">
-                    {device.status === 'offline' && (
+                  {/* Card Bottom: Quick Actions (Connect, Files, Terminal, WoL) */}
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-800/60" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-1 text-xs">
+                      {device.unattendedAccess && (
+                        <span className="flex items-center gap-1 text-emerald-400 bg-emerald-950/40 border border-emerald-800/40 text-[10px] px-2 py-0.5 rounded-full font-sans">
+                          <Key className="w-2.5 h-2.5" />
+                          <span>{isRtl ? 'اتصال خودکار' : 'Unattended'}</span>
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      {device.status === 'offline' && (
+                        <button
+                          onClick={(e) => handleWakeOnLan(device, e)}
+                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 hover:text-white transition-colors"
+                          title={isRtl ? 'روشن کردن از راه دور (Wake-on-LAN)' : 'Wake on LAN'}
+                        >
+                          <Power className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+
                       <button
-                        onClick={(e) => handleWakeOnLan(device, e)}
-                        className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 hover:text-white transition-colors"
-                        title={isRtl ? 'روشن کردن از راه دور (Wake-on-LAN)' : 'Wake on LAN'}
+                        onClick={() => onOpenFileTransfer(device)}
+                        className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                        title={isRtl ? 'انتقال فایل' : 'File Manager'}
                       >
-                        <Power className="w-3.5 h-3.5" />
+                        <FolderSync className="w-3.5 h-3.5 text-amber-400" />
                       </button>
-                    )}
 
-                    <button
-                      onClick={() => onOpenFileTransfer(device)}
-                      className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
-                      title={isRtl ? 'انتقال فایل' : 'File Manager'}
-                    >
-                      <FolderSync className="w-3.5 h-3.5 text-amber-400" />
-                    </button>
+                      <button
+                        onClick={() => onOpenTerminal(device)}
+                        className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                        title={isRtl ? 'ترمینال ریموت' : 'Remote Terminal'}
+                      >
+                        <Terminal className="w-3.5 h-3.5 text-emerald-400" />
+                      </button>
 
-                    <button
-                      onClick={() => onOpenTerminal(device)}
-                      className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
-                      title={isRtl ? 'ترمینال ریموت' : 'Remote Terminal'}
-                    >
-                      <Terminal className="w-3.5 h-3.5 text-emerald-400" />
-                    </button>
-
-                    <button
-                      onClick={() => onConnectToDevice(device)}
-                      className="px-3 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs flex items-center gap-1 shadow-sm shadow-red-600/30 transition-all"
-                    >
-                      <span>{isRtl ? 'اتصال' : 'Connect'}</span>
-                      {isRtl ? <ArrowLeft className="w-3 h-3" /> : <ArrowRight className="w-3 h-3" />}
-                    </button>
+                      <button
+                        onClick={() => onConnectToDevice(device)}
+                        className="px-3 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs flex items-center gap-1 shadow-sm shadow-red-600/30 transition-all"
+                      >
+                        <span>{isRtl ? 'اتصال' : 'Connect'}</span>
+                        {isRtl ? <ArrowLeft className="w-3 h-3" /> : <ArrowRight className="w-3 h-3" />}
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* MODAL: ADD NEW WORKSTATION */}

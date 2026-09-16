@@ -45,23 +45,12 @@ export const FileManager: React.FC<FileManagerProps> = ({
   const [selectedRemote, setSelectedRemote] = useState<RemoteFile | null>(null);
 
   const [localPath, setLocalPath] = useState('Local/Downloads');
-  const [remotePath, setRemotePath] = useState('C:/Accounting');
+  const [remotePath, setRemotePath] = useState('Remote/Root');
 
   const [searchLocal, setSearchLocal] = useState('');
   const [searchRemote, setSearchRemote] = useState('');
 
-  const [transfers, setTransfers] = useState<FileTransferProgress[]>([
-    {
-      id: 'tx-1',
-      fileName: 'Sepidar_DB_Backup_2026.bak',
-      direction: 'download',
-      totalBytes: 450000000,
-      transferredBytes: 450000000,
-      speed: '48.5 MB/s',
-      status: 'completed',
-      timestamp: '11:20'
-    }
-  ]);
+  const [transfers, setTransfers] = useState<FileTransferProgress[]>([]);
 
   const [activeTransfer, setActiveTransfer] = useState<FileTransferProgress | null>(null);
 
@@ -269,26 +258,33 @@ export const FileManager: React.FC<FileManagerProps> = ({
 
           {/* Local File List */}
           <div className="flex-1 overflow-y-auto p-2 space-y-1 text-xs">
-            {filteredLocal.map((file, idx) => (
-              <div
-                key={idx}
-                onClick={() => setSelectedLocal(file)}
-                className={`p-2 rounded-xl flex items-center justify-between cursor-pointer transition-colors ${
-                  selectedLocal?.name === file.name 
-                    ? 'bg-blue-600/20 border border-blue-500/40 text-white' 
-                    : 'hover:bg-slate-800/60 text-slate-300'
-                }`}
-              >
-                <div className="flex items-center gap-2.5 truncate">
-                  {getFileIcon(file)}
-                  <span className="font-medium truncate">{file.name}</span>
-                </div>
-                <div className="flex items-center gap-4 text-[11px] text-slate-400 font-mono">
-                  <span>{formatSize(file.size)}</span>
-                  <span className="hidden sm:inline text-slate-500">{file.modified}</span>
-                </div>
+            {filteredLocal.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-slate-500 p-6 text-center">
+                <Folder className="w-8 h-8 text-slate-600 mb-2" />
+                <span className="text-xs">{isRtl ? 'پوشه خالی است' : 'Folder is empty'}</span>
               </div>
-            ))}
+            ) : (
+              filteredLocal.map((file, idx) => (
+                <div
+                  key={idx}
+                  onClick={() => setSelectedLocal(file)}
+                  className={`p-2 rounded-xl flex items-center justify-between cursor-pointer transition-colors ${
+                    selectedLocal?.name === file.name 
+                      ? 'bg-blue-600/20 border border-blue-500/40 text-white' 
+                      : 'hover:bg-slate-800/60 text-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 truncate">
+                    {getFileIcon(file)}
+                    <span className="font-medium truncate">{file.name}</span>
+                  </div>
+                  <div className="flex items-center gap-4 text-[11px] text-slate-400 font-mono">
+                    <span>{formatSize(file.size)}</span>
+                    <span className="hidden sm:inline text-slate-500">{file.modified}</span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
 
           {/* Local Bottom Action Bar */}
@@ -339,26 +335,33 @@ export const FileManager: React.FC<FileManagerProps> = ({
 
           {/* Remote File List */}
           <div className="flex-1 overflow-y-auto p-2 space-y-1 text-xs">
-            {filteredRemote.map((file, idx) => (
-              <div
-                key={idx}
-                onClick={() => setSelectedRemote(file)}
-                className={`p-2 rounded-xl flex items-center justify-between cursor-pointer transition-colors ${
-                  selectedRemote?.name === file.name 
-                    ? 'bg-red-600/20 border border-red-500/40 text-white' 
-                    : 'hover:bg-slate-800/60 text-slate-300'
-                }`}
-              >
-                <div className="flex items-center gap-2.5 truncate">
-                  {getFileIcon(file)}
-                  <span className="font-medium truncate">{file.name}</span>
-                </div>
-                <div className="flex items-center gap-4 text-[11px] text-slate-400 font-mono">
-                  <span>{formatSize(file.size)}</span>
-                  <span className="hidden sm:inline text-slate-500">{file.modified}</span>
-                </div>
+            {filteredRemote.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-slate-500 p-6 text-center">
+                <Folder className="w-8 h-8 text-slate-600 mb-2" />
+                <span className="text-xs">{isRtl ? 'پوشه ریموت خالی است' : 'Remote folder is empty'}</span>
               </div>
-            ))}
+            ) : (
+              filteredRemote.map((file, idx) => (
+                <div
+                  key={idx}
+                  onClick={() => setSelectedRemote(file)}
+                  className={`p-2 rounded-xl flex items-center justify-between cursor-pointer transition-colors ${
+                    selectedRemote?.name === file.name 
+                      ? 'bg-red-600/20 border border-red-500/40 text-white' 
+                      : 'hover:bg-slate-800/60 text-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 truncate">
+                    {getFileIcon(file)}
+                    <span className="font-medium truncate">{file.name}</span>
+                  </div>
+                  <div className="flex items-center gap-4 text-[11px] text-slate-400 font-mono">
+                    <span>{formatSize(file.size)}</span>
+                    <span className="hidden sm:inline text-slate-500">{file.modified}</span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
 
           {/* Remote Bottom Action Bar */}

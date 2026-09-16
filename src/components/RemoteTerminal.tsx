@@ -37,18 +37,8 @@ export const RemoteTerminal: React.FC<RemoteTerminalProps> = ({
   }>>([
     {
       type: 'system',
-      text: `Microsoft Windows [Version 10.0.22631.3880]\n(c) Microsoft Corporation. All rights reserved.\nConnected to remote workstation: ${remoteName} (ID: ${remoteId})\nAnyDesk Secure Shell Session Initialized (TLS 1.3 - 256-bit AES)`,
-      timestamp: '11:30'
-    },
-    {
-      type: 'input',
-      text: 'systeminfo | findstr /B /C:"OS Name" /C:"OS Version" /C:"Total Physical Memory"',
-      timestamp: '11:30'
-    },
-    {
-      type: 'output',
-      text: 'OS Name:                   Microsoft Windows 11 Pro\nOS Version:                10.0.22631 N/A Build 22631\nTotal Physical Memory:     32,698 MB',
-      timestamp: '11:30'
+      text: `Connected to remote terminal: ${remoteName} (ID: ${remoteId})\nmeh desk Secure Shell Initialized (AES-256-GCM / TLS 1.3).\nType commands below to execute on target machine.`,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
 

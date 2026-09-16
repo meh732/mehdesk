@@ -14,18 +14,50 @@ import { Device, SessionPermissions } from './types';
 import { INITIAL_COMPANY_DEVICES } from './utils/mockDevices';
 
 export default function App() {
-  // Application State
-  const [localId, setLocalId] = useState<string>('942 815 304');
-  const [alias, setAlias] = useState<string>('tehran-hq-admin@desk');
-  const [unattendedPassword, setUnattendedPassword] = useState<string>('admin123');
+  // Generate random 9-digit client ID once or persist in localStorage
+  const [localId, setLocalId] = useState<string>(() => {
+    const saved = localStorage.getItem('mehdesk_local_id');
+    if (saved) return saved;
+    const p1 = Math.floor(100 + Math.random() * 900);
+    const p2 = Math.floor(100 + Math.random() * 900);
+    const p3 = Math.floor(100 + Math.random() * 900);
+    const newId = `${p1} ${p2} ${p3}`;
+    localStorage.setItem('mehdesk_local_id', newId);
+    return newId;
+  });
+
+  const [alias, setAlias] = useState<string>(() => {
+    return localStorage.getItem('mehdesk_alias') || `desk-${Math.floor(1000 + Math.random() * 9000)}@desk`;
+  });
+
+  const [unattendedPassword, setUnattendedPassword] = useState<string>(() => {
+    return localStorage.getItem('mehdesk_password') || '';
+  });
+
   const [isRtl, setIsRtl] = useState<boolean>(true);
 
   // Tab Navigation: 'dashboard' | 'devices' | 'host' | 'terminal' | 'file-manager' | 'session'
   const [activeTab, setActiveTab] = useState<'dashboard' | 'devices' | 'host' | 'terminal' | 'file-manager' | 'session'>('dashboard');
 
-  // Devices & Active Session
-  const [devices, setDevices] = useState<Device[]>(INITIAL_COMPANY_DEVICES);
+  // Devices: Starts completely empty (no mock data), persisted in localStorage
+  const [devices, setDevices] = useState<Device[]>(() => {
+    const saved = localStorage.getItem('mehdesk_saved_devices');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        return [];
+      }
+    }
+    return INITIAL_COMPANY_DEVICES; // starts empty []
+  });
+
   const [activeDevice, setActiveDevice] = useState<Device | null>(null);
+
+  // Persist devices whenever updated
+  useEffect(() => {
+    localStorage.setItem('mehdesk_saved_devices', JSON.stringify(devices));
+  }, [devices]);
 
   // Screen Sharing / Host Stream
   const [hostStream, setHostStream] = useState<MediaStream | null>(null);
