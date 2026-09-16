@@ -179,6 +179,8 @@ BALE_BOT_TOKEN=${BALE_BOT_TOKEN}
 BALE_ADMIN_CHAT_ID=${BALE_CHAT_ID}
 EOF
 
+    NODE_BIN=$(command -v node || echo "/usr/bin/node")
+
     cat <<EOF > /etc/systemd/system/${SERVICE_NAME}.service
 [Unit]
 Description=meh desk Enterprise Remote Desktop Service
@@ -189,7 +191,7 @@ Type=simple
 User=root
 WorkingDirectory=${INSTALL_DIR}
 EnvironmentFile=${ENV_FILE}
-ExecStart=/usr/bin/node ${INSTALL_DIR}/dist/server.cjs
+ExecStart=${NODE_BIN} ${INSTALL_DIR}/dist/server.cjs
 Restart=always
 RestartSec=5
 LimitNOFILE=65535

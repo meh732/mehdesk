@@ -387,6 +387,8 @@ EOF
         PORT=${PORT:-3000}
     fi
 
+    NODE_BIN=$(command -v node || echo "/usr/bin/node")
+
     # Create Systemd Service
     cat <<EOF > "/etc/systemd/system/${SERVICE_NAME}.service"
 [Unit]
@@ -398,7 +400,7 @@ Type=simple
 User=root
 WorkingDirectory=${INSTALL_DIR}
 EnvironmentFile=${ENV_FILE}
-ExecStart=/usr/bin/node ${INSTALL_DIR}/dist/server.cjs
+ExecStart=${NODE_BIN} ${INSTALL_DIR}/dist/server.cjs
 Restart=always
 RestartSec=3
 LimitNOFILE=65535
