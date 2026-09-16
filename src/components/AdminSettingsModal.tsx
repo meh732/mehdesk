@@ -681,19 +681,32 @@ export const AdminSettingsModal: React.FC<AdminSettingsModalProps> = ({
 
                     <p className="text-[11px] text-slate-400">
                       {isRtl 
-                        ? 'برای بیلد مستقیم فایل اجرایی (.exe) کلاینت نیتیو ویندوز در لینوکس یا ویندوز:'
-                        : 'To build the native standalone Windows portable (.exe) binary with Tauri/Rust:'}
+                        ? 'برای کامپایل مستقیم فایل اگزه ویندوز (.exe) داخل سرور لینوکس با تائوری و MinGW:'
+                        : 'To cross-compile the standalone Windows (.exe) binary inside Linux with Tauri & MinGW:'}
                     </p>
 
-                    <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 font-mono text-[11px] text-purple-300 flex items-center justify-between gap-3 overflow-x-auto">
-                      <code>cargo tauri build</code>
-                      <button
-                        onClick={() => copyToClipboard('cargo tauri build', 'tauri')}
-                        className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white shrink-0 transition-colors"
-                        title="کپی دستور"
-                      >
-                        {copiedScript === 'tauri' ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                      </button>
+                    <div className="space-y-2">
+                      <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 font-mono text-[11px] text-emerald-300 flex items-center justify-between gap-3 overflow-x-auto">
+                        <code>bash scripts/build-tauri-windows.sh</code>
+                        <button
+                          onClick={() => copyToClipboard('bash scripts/build-tauri-windows.sh', 'tauri-script')}
+                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white shrink-0 transition-colors"
+                          title="کپی دستور"
+                        >
+                          {copiedScript === 'tauri-script' ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                        </button>
+                      </div>
+
+                      <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 font-mono text-[11px] text-purple-300 flex items-center justify-between gap-3 overflow-x-auto">
+                        <code>cargo tauri build --target x86_64-pc-windows-gnu --release</code>
+                        <button
+                          onClick={() => copyToClipboard('cargo tauri build --target x86_64-pc-windows-gnu --release', 'tauri')}
+                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white shrink-0 transition-colors"
+                          title="کپی دستور"
+                        >
+                          {copiedScript === 'tauri' ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

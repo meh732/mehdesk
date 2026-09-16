@@ -1,8 +1,8 @@
 [package]
-name = "anydesk-remote-portable"
-version = "8.5.0"
-description = "AnyDesk Enterprise Remote Hub - Standalone Ultra-Lightweight Tauri Desktop Client"
-authors = ["AnyDesk Enterprise Team"]
+name = "mehdesk-portable"
+version = "9.0.0"
+description = "meh desk Enterprise Remote Desktop - Windows Standalone Portable Client (.exe)"
+authors = ["meh desk Team"]
 edition = "2021"
 build = "build.rs"
 

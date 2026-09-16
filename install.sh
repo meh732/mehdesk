@@ -615,9 +615,10 @@ main_interactive_menu() {
     echo -e "  ${WHITE}6)${NC} Change Listening Port"
     echo -e "  ${CYAN}7)${NC} Configure Domain & SSL Let's Encrypt"
     echo -e "  ${YELLOW}8)${NC} Reset Admin PIN"
-    echo -e "  ${RED}9)${NC} Uninstall meh desk"
+    echo -e "  ${MAGENTA}9)${NC} 📦 Build Windows Portable Client (.exe) via Tauri on Linux"
+    echo -e "  ${RED}10)${NC} Uninstall meh desk"
     echo -e "  ${BOLD}0)${NC} Exit\n"
-    read -p "Select an option [0-9]: " action_choice
+    read -p "Select an option [0-10]: " action_choice
 
     case "$action_choice" in
         1)
@@ -723,6 +724,19 @@ main_interactive_menu() {
             fi
             ;;
         9)
+            local target_dir="${INSTALL_DIR}"
+            if [ ! -d "$target_dir" ] && [ -f "./package.json" ]; then
+                target_dir="$(pwd)"
+            fi
+            if [ -f "${target_dir}/scripts/build-tauri-windows.sh" ]; then
+                bash "${target_dir}/scripts/build-tauri-windows.sh"
+            elif [ -f "./scripts/build-tauri-windows.sh" ]; then
+                bash "./scripts/build-tauri-windows.sh"
+            else
+                echo -e "${RED}[ERROR] build-tauri-windows.sh not found.${NC}"
+            fi
+            ;;
+        10)
             read -p "Are you sure you want to remove meh desk? [y/N]: " confirm
             if [[ "$confirm" =~ ^[Yy]$ ]]; then
                 systemctl stop ${SERVICE_NAME} || true

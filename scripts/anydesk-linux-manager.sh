@@ -437,33 +437,39 @@ option_uninstall() {
 # OPTION 4: TAURI PORTABLE CLIENT BUILDER / DOWNLOADER (WINDOWS & LINUX)
 # ==============================================================================
 option_tauri_portable() {
-    echo -e "${CYAN}${BOLD}>>> گزینه ۴: تولید و دانلود بسته پورتابل کلاینت (Tauri Portable Client)<<<${NC}"
-    echo -e "${YELLOW}این ماژول، کلاینت دسکتاپ سبک، پرتابل و بدون نیاز به نصب Tauri را برای ویندوز (.exe) و لینوکس آماده می‌کند.${NC}\n"
+    echo -e "${CYAN}${BOLD}>>> گزینه ۴: تولید و کامپایل کلاینت اگزه ویندوز (Tauri Windows .exe)<<<${NC}"
+    echo -e "${YELLOW}این ماژول، کلاینت پرتابل ویندوز را با فرمت اجرایی (.exe) مستقیماً داخل سرور لینوکس با Rust و MinGW کامپایل و آماده دانلود می‌کند.${NC}\n"
 
-    echo -e "گزینه‌های نسخه پورتابل:"
-    echo -e "  ${BOLD}1)${NC} پیکربندی و دانلود فایل‌های پروژه Tauri (tauri.conf.json و منابع)"
-    echo -e "  ${BOLD}2)${NC} ساخت بسته باینری کامپایل‌شده Tauri (نیازمند Rust/Cargo)"
-    echo -e "  ${BOLD}3)${NC} دانلود بسته اجرایی مستقیم ویندوز (Standalone Portable .exe)"
+    echo -e "گزینه‌های نسخه ویندوز (.exe):"
+    echo -e "  ${BOLD}1)${NC} 🚀 کامپایل کامل نسخه اگزه ویندوز روی لینوکس (Cross-Compile to x86_64-pc-windows-gnu .exe)"
+    echo -e "  ${BOLD}2)${NC} 📁 پیکربندی فایل‌های src-tauri/.cargo/config.toml جهت MinGW Linker"
+    echo -e "  ${BOLD}3)${NC} 🔗 مشاهده لینک‌های دانلود مستقیم فایل اگزه ویندوز (.exe)"
     echo -e "  ${BOLD}4)${NC} بازگشت به منوی اصلی"
 
     read -rp "لطفاً یک گزینه انتخاب کنید [1-4]: " TAURI_CHOICE
     case "$TAURI_CHOICE" in
         1)
-            echo -e "${CYAN}در حال آماده‌سازی پوشه src-tauri و کانفیگ پرتابل...${NC}"
-            mkdir -p "${INSTALL_DIR}/src-tauri"
-            echo -e "${GREEN}[OK] کانفیگ Tauri با حجم ۵ مگابایت و پشتیبانی از Webview2 آماده است.${NC}"
+            if [ -f "${INSTALL_DIR}/scripts/build-tauri-windows.sh" ]; then
+                bash "${INSTALL_DIR}/scripts/build-tauri-windows.sh"
+            elif [ -f "./scripts/build-tauri-windows.sh" ]; then
+                bash "./scripts/build-tauri-windows.sh"
+            else
+                echo -e "${RED}[ERROR] اسکریپت build-tauri-windows.sh یافت نشد.${NC}"
+            fi
             ;;
         2)
-            echo -e "${CYAN}در حال بررسی پیش‌نیازهای Rust و Tauri CLI...${NC}"
-            if ! command -v cargo &>/dev/null; then
-                echo -e "${YELLOW}نصب ابزار Rust و کامپایلر...${NC}"
-                curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-                source "$HOME/.cargo/env"
-            fi
-            npm run tauri:build 2>/dev/null || echo -e "${GREEN}دستور آماده‌سازی بیلد Tauri تکمیل شد.${NC}"
+            echo -e "${CYAN}در حال آماده‌سازی پوشه src-tauri و کانفیگ MinGW Linker...${NC}"
+            mkdir -p "${INSTALL_DIR}/src-tauri/.cargo"
+            cat << 'CARGO_EOF' > "${INSTALL_DIR}/src-tauri/.cargo/config.toml"
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
+ar = "x86_64-w64-mingw32-ar"
+CARGO_EOF
+            echo -e "${GREEN}[OK] فایل کانفیگ src-tauri/.cargo/config.toml برای بیلد ویندوز روی لینوکس تنظیم شد.${NC}"
             ;;
         3)
-            echo -e "${GREEN}لینک مستقیم دانلود کلاینت پرتابل ویندوز: http://$(curl -s ifconfig.me || echo 'localhost'):${CUSTOM_PORT:-3000}/downloads/anydesk-portable.exe${NC}"
+            local s_ip=$(curl -s ifconfig.me || curl -s icanhazip.com || echo 'localhost')
+            echo -e "${GREEN}لینک مستقیم دانلود کلاینت پرتابل ویندوز: http://${s_ip}:${CUSTOM_PORT:-3000}/downloads/mehdesk-portable.exe${NC}"
             ;;
         *)
             return 0

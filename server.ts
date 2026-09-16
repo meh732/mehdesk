@@ -1,6 +1,7 @@
 import express from "express";
 import http from "http";
 import path from "path";
+import fs from "fs";
 import { WebSocketServer, WebSocket } from "ws";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
@@ -201,7 +202,6 @@ app.post("/api/admin/dispatch-backup", async (req, res) => {
 
 // API: Dynamic Linux Bash Script Generator & Downloader (Supports mehdesk-linux-manager.sh and install.sh)
 app.get(["/install.sh", "/api/scripts/install", "/api/scripts/linux", "/api/scripts/mehdesk-linux"], (req, res) => {
-  const fs = require("fs");
   let scriptPath = path.join(process.cwd(), "install.sh");
   if (!fs.existsSync(scriptPath)) {
     scriptPath = path.join(process.cwd(), "scripts", "mehdesk-linux-manager.sh");
@@ -235,7 +235,6 @@ app.get(["/install.sh", "/api/scripts/install", "/api/scripts/linux", "/api/scri
 
 // API: Dynamic Windows PowerShell Script Downloader
 app.get("/api/scripts/windows-ps1", (req, res) => {
-  const fs = require("fs");
   const scriptPath = path.join(process.cwd(), "scripts", "install-windows.ps1");
   if (fs.existsSync(scriptPath)) {
     let content = fs.readFileSync(scriptPath, "utf8");
@@ -251,6 +250,48 @@ app.get("/api/scripts/windows-ps1", (req, res) => {
   } else {
     res.status(404).send("# PowerShell script not found");
   }
+});
+
+// Downloads Static Serving & Direct Windows .exe Route
+app.use("/downloads", express.static(path.join(process.cwd(), "public", "downloads")));
+app.use("/downloads", express.static(path.join(process.cwd(), "dist", "downloads")));
+
+app.get(["/downloads/mehdesk-portable.exe", "/downloads/mehdesk-windows.exe", "/api/download/windows-exe"], (req, res) => {
+  const possiblePaths = [
+    path.join(process.cwd(), "public", "downloads", "mehdesk-portable.exe"),
+    path.join(process.cwd(), "dist", "downloads", "mehdesk-portable.exe"),
+    path.join(process.cwd(), "src-tauri", "target", "x86_64-pc-windows-gnu", "release", "mehdesk-portable.exe"),
+    path.join(process.cwd(), "src-tauri", "target", "x86_64-pc-windows-gnu", "release", "mehdesk-Portable.exe"),
+    path.join("/usr/local/mehdesk", "public", "downloads", "mehdesk-portable.exe"),
+    path.join("/usr/local/mehdesk", "dist", "downloads", "mehdesk-portable.exe")
+  ];
+
+  for (const exePath of possiblePaths) {
+    if (fs.existsSync(exePath)) {
+      res.setHeader("Content-Type", "application/vnd.microsoft.portable-executable");
+      res.setHeader("Content-Disposition", 'attachment; filename="mehdesk-portable.exe"');
+      return res.sendFile(exePath);
+    }
+  }
+
+  // If not compiled yet on this server, check if NSIS installer exists
+  const nsisDir = path.join(process.cwd(), "src-tauri", "target", "x86_64-pc-windows-gnu", "release", "bundle", "nsis");
+  if (fs.existsSync(nsisDir)) {
+    const files = fs.readdirSync(nsisDir);
+    const exe = files.find((f: string) => f.endsWith(".exe"));
+    if (exe) {
+      res.setHeader("Content-Type", "application/vnd.microsoft.portable-executable");
+      res.setHeader("Content-Disposition", `attachment; filename="${exe}"`);
+      return res.sendFile(path.join(nsisDir, exe));
+    }
+  }
+
+  res.status(404).json({
+    status: "not_compiled_yet",
+    message: "فایل اگزه ویندوز هنوز کامپایل نشده است. لطفاً دستور 'bash scripts/build-tauri-windows.sh' یا گزینه ۴ منوی منیجر را در سرور لینوکس اجرا فرمایید.",
+    compileCommand: "bash scripts/build-tauri-windows.sh",
+    target: "x86_64-pc-windows-gnu"
+  });
 });
 
 // API: Test Bot connection for Telegram & Bale

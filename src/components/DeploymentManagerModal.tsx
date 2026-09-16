@@ -512,30 +512,69 @@ export const DeploymentManagerModal: React.FC<DeploymentManagerModalProps> = ({
                 </div>
 
                 {/* Build commands and direct runner */}
-                <div className="space-y-2 pt-2">
-                  <span className="text-xs font-bold text-slate-300">
-                    {isRtl ? 'دستور ساخت بسته پورتابل در محیط پروژه (Tauri Build):' : 'Tauri Compilation Command:'}
-                  </span>
-                  <div className="bg-black/90 p-3 rounded-xl border border-slate-800 font-mono text-xs text-amber-400 flex items-center justify-between">
-                    <code>cargo tauri build --release --no-bundle</code>
-                    <button
-                      onClick={() => handleCopyCmd('cargo tauri build --release --no-bundle', 'script')}
-                      className="p-1.5 bg-slate-800 text-slate-300 rounded hover:bg-slate-700"
-                    >
-                      {copiedScript ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    </button>
+                <div className="space-y-3 pt-2">
+                  <div className="p-3 bg-cyan-950/40 border border-cyan-800/40 rounded-xl text-xs space-y-1">
+                    <span className="text-cyan-300 font-bold block">
+                      {isRtl ? '⚠️ کامپایل نسخه ویندوز (.exe) در محیط لینوکس:' : 'Cross-compiling Windows (.exe) on Linux:'}
+                    </span>
+                    <p className="text-slate-300 leading-relaxed">
+                      {isRtl 
+                        ? 'تائوری روی سرور لینوکس با استفاده از تارگت x86_64-pc-windows-gnu و ابزار MinGW مستقیماً فایل اجرایی ویندوز با فرمت mehdesk-portable.exe تولید می‌کند.'
+                        : 'Tauri inside Linux utilizes the x86_64-pc-windows-gnu target and MinGW to produce the standalone Windows executable (.exe).'}
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <span className="text-xs font-bold text-slate-300">
+                      {isRtl ? '۱. دستور خودکار کامپایل اگزه ویندوز روی سرور لینوکس:' : '1. Automated Linux-to-Windows .exe build script:'}
+                    </span>
+                    <div className="bg-black/90 p-3 rounded-xl border border-slate-800 font-mono text-xs text-emerald-400 flex items-center justify-between">
+                      <code>bash scripts/build-tauri-windows.sh</code>
+                      <button
+                        onClick={() => handleCopyCmd('bash scripts/build-tauri-windows.sh', 'script')}
+                        className="p-1.5 bg-slate-800 text-slate-300 rounded hover:bg-slate-700"
+                        title="کپی"
+                      >
+                        {copiedScript ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <span className="text-xs font-bold text-slate-300">
+                      {isRtl ? '۲. دستور مستقیم Cargo Tauri (تارگت اختصاصی Windows GNU):' : '2. Direct Cargo Tauri command:'}
+                    </span>
+                    <div className="bg-black/90 p-3 rounded-xl border border-slate-800 font-mono text-xs text-amber-400 flex items-center justify-between">
+                      <code>cargo tauri build --target x86_64-pc-windows-gnu --release --no-bundle</code>
+                      <button
+                        onClick={() => handleCopyCmd('cargo tauri build --target x86_64-pc-windows-gnu --release --no-bundle', 'script')}
+                        className="p-1.5 bg-slate-800 text-slate-300 rounded hover:bg-slate-700"
+                        title="کپی"
+                      >
+                        {copiedScript ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 pt-2">
+                <div className="flex flex-wrap items-center gap-3 pt-2">
+                  <a
+                    href="/downloads/mehdesk-portable.exe"
+                    download="mehdesk-portable.exe"
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg shadow-emerald-600/30 transition-all"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>{isRtl ? 'دانلود مستقیم کلاینت اگزه ویندوز (.exe)' : 'Download Windows Portable .exe'}</span>
+                  </a>
+
                   <button
                     onClick={() => {
-                      alert(isRtl ? 'پیکربندی Tauri v2 در مسیر /src-tauri/tauri.conf.json ایجاد شد و آماده کامپایل است.' : 'Tauri config is ready in /src-tauri');
+                      alert(isRtl ? 'پیکربندی Tauri v2 در مسیر /src-tauri/tauri.conf.json و .cargo/config.toml برای تارگت x86_64-pc-windows-gnu تنظیم شد.' : 'Tauri config is ready in /src-tauri for target x86_64-pc-windows-gnu');
                     }}
-                    className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs px-4 py-2 rounded-xl flex items-center gap-2 shadow-lg shadow-cyan-600/30 transition-all"
+                    className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs px-4 py-2.5 rounded-xl flex items-center gap-2 border border-slate-700 transition-all"
                   >
                     <Package className="w-4 h-4" />
-                    <span>{isRtl ? 'بررسی فایل‌های پیکربندی src-tauri' : 'Verify Tauri Config Files'}</span>
+                    <span>{isRtl ? 'بررسی فایل‌های پیکربندی src-tauri' : 'Verify Tauri Config'}</span>
                   </button>
                 </div>
               </div>

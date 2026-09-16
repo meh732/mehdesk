@@ -519,6 +519,25 @@ update_mehdesk() {
     echo -e "\n${GREEN}${BOLD}🎉 meh desk update completed successfully! All services & WebSockets updated.${NC}\n"
 }
 
+build_tauri_windows_exe() {
+    echo -e "\n${BOLD}${CYAN}===================================================================${NC}"
+    echo -e "${BOLD}${CYAN}   🚀 Build Windows Portable Client (.exe) via Tauri on Linux     ${NC}"
+    echo -e "${BOLD}${CYAN}===================================================================${NC}\n"
+    echo -e "${YELLOW}این ماژول، کلاینت پرتابل ویندوز را با فرمت اجرایی .exe با تارگت x86_64-pc-windows-gnu کامپایل کرده و لینک دانلود مستقیم می‌سازد.${NC}\n"
+    
+    local target_dir="${INSTALL_DIR}"
+    if [ ! -d "$target_dir" ] && [ -f "./package.json" ]; then
+        target_dir="$(pwd)"
+    fi
+
+    if [ -f "${target_dir}/scripts/build-tauri-windows.sh" ]; then
+        bash "${target_dir}/scripts/build-tauri-windows.sh"
+    else
+        echo -e "${RED}[ERROR] build-tauri-windows.sh not found in ${target_dir}/scripts/${NC}"
+        return 1
+    fi
+}
+
 uninstall_mehdesk() {
     echo -e "\n${BOLD}${RED}=== Uninstalling meh desk ===${NC}\n"
     read -p "Are you sure you want to remove meh desk? (y/N): " CONFIRM
@@ -541,16 +560,18 @@ echo -e "Please select an option:\n"
 echo -e "  ${GREEN}1)${NC} Install / Reinstall meh desk"
 echo -e "  ${CYAN}2)${NC} Update to Latest Release (No Data Loss)"
 echo -e "  ${PURPLE}3)${NC} Setup Domain & Free SSL (Nginx / Certbot)"
-echo -e "  ${RED}4)${NC} Uninstall Service"
-echo -e "  ${YELLOW}5)${NC} Exit\n"
+echo -e "  ${BLUE}4)${NC} 📦 Build Windows Portable Client (.exe) via Tauri on Linux"
+echo -e "  ${RED}5)${NC} Uninstall Service"
+echo -e "  ${YELLOW}6)${NC} Exit\n"
 
-read -p "Select an option [1-5]: " CHOICE
+read -p "Select an option [1-6]: " CHOICE
 
 case "$CHOICE" in
     1) install_mehdesk ;;
     2) update_mehdesk ;;
     3) configure_standalone_ssl ;;
-    4) uninstall_mehdesk ;;
-    5) exit 0 ;;
+    4) build_tauri_windows_exe ;;
+    5) uninstall_mehdesk ;;
+    6) exit 0 ;;
     *) echo -e "${RED}Invalid selection.${NC}"; exit 1 ;;
 esac
