@@ -126,6 +126,7 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
   useEffect(() => {
     if (videoRef.current && realStream) {
       videoRef.current.srcObject = realStream;
+      videoRef.current.play().catch(e => console.warn('Video auto-play error:', e));
     }
   }, [realStream]);
 

@@ -12,6 +12,7 @@ import { AiAssistantDrawer } from './components/AiAssistantDrawer';
 import { DeploymentManagerModal } from './components/DeploymentManagerModal';
 import { Device, SessionPermissions } from './types';
 import { INITIAL_COMPANY_DEVICES } from './utils/mockDevices';
+import { WebRtcClient } from './utils/webrtc';
 
 export default function App() {
   // Generate random 9-digit client ID once or persist in localStorage
@@ -53,6 +54,32 @@ export default function App() {
   });
 
   const [activeDevice, setActiveDevice] = useState<Device | null>(null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const rtcRef = React.useRef<WebRtcClient | null>(null);
+
+  // Initialize WebRtc Signaling Client
+  useEffect(() => {
+    const rtc = new WebRtcClient(localId);
+    rtcRef.current = rtc;
+
+    rtc.onRemoteStream((stream) => {
+      console.log('Received real remote stream track!');
+      setRemoteStream(stream);
+    });
+
+    rtc.onIncomingRequest((req) => {
+      // If someone wants to connect to this device
+      const confirmConnect = window.confirm(`درخواست اتصال ورودی از طرف: ${req.requesterName} (${req.fromId})\nآیا اجازه ریموت می‌دهید؟`);
+      rtc.respondToRequest(req.fromId, confirmConnect, permissions);
+      if (confirmConnect && !hostStream) {
+        handleStartHosting();
+      }
+    });
+
+    return () => {
+      rtc.disconnect();
+    };
+  }, [localId]);
 
   // Persist devices whenever updated
   useEffect(() => {
@@ -325,6 +352,10 @@ export default function App() {
           <RemoteViewer
             device={activeDevice}
             onDisconnect={() => {
+              if (rtcRef.current) {
+                rtcRef.current.disconnect();
+              }
+              setRemoteStream(null);
               setActiveDevice(null);
               setActiveTab('dashboard');
             }}
@@ -332,6 +363,7 @@ export default function App() {
             onOpenTerminal={() => setActiveTab('terminal')}
             onOpenAiHelp={() => setAiDrawerOpen(true)}
             isRtl={isRtl}
+            realStream={remoteStream || hostStream}
           />
         )}
       </main>
