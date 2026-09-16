@@ -10,6 +10,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { AdminSettingsModal } from './components/AdminSettingsModal';
 import { AiAssistantDrawer } from './components/AiAssistantDrawer';
 import { DeploymentManagerModal } from './components/DeploymentManagerModal';
+import { IncomingConnectionDialog, IncomingRequestData } from './components/IncomingConnectionDialog';
 import { Device, SessionPermissions } from './types';
 import { INITIAL_COMPANY_DEVICES } from './utils/mockDevices';
 import { WebRtcClient } from './utils/webrtc';
@@ -55,36 +56,8 @@ export default function App() {
 
   const [activeDevice, setActiveDevice] = useState<Device | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [incomingRequest, setIncomingRequest] = useState<IncomingRequestData | null>(null);
   const rtcRef = React.useRef<WebRtcClient | null>(null);
-
-  // Initialize WebRtc Signaling Client
-  useEffect(() => {
-    const rtc = new WebRtcClient(localId);
-    rtcRef.current = rtc;
-
-    rtc.onRemoteStream((stream) => {
-      console.log('Received real remote stream track!');
-      setRemoteStream(stream);
-    });
-
-    rtc.onIncomingRequest((req) => {
-      // If someone wants to connect to this device
-      const confirmConnect = window.confirm(`درخواست اتصال ورودی از طرف: ${req.requesterName} (${req.fromId})\nآیا اجازه ریموت می‌دهید؟`);
-      rtc.respondToRequest(req.fromId, confirmConnect, permissions);
-      if (confirmConnect && !hostStream) {
-        handleStartHosting();
-      }
-    });
-
-    return () => {
-      rtc.disconnect();
-    };
-  }, [localId]);
-
-  // Persist devices whenever updated
-  useEffect(() => {
-    localStorage.setItem('mehdesk_saved_devices', JSON.stringify(devices));
-  }, [devices]);
 
   // Screen Sharing / Host Stream
   const [hostStream, setHostStream] = useState<MediaStream | null>(null);
@@ -102,6 +75,50 @@ export default function App() {
     allowWhiteboard: true,
     allowPrivacyScreen: true
   });
+
+  // Initialize WebRtc Signaling Client
+  useEffect(() => {
+    const rtc = new WebRtcClient(localId);
+    rtcRef.current = rtc;
+
+    rtc.onRemoteStream((stream) => {
+      console.log('Received real remote stream track!');
+      setRemoteStream(stream);
+    });
+
+    rtc.onIncomingRequest((req) => {
+      console.log('Received incoming connection request:', req);
+      setIncomingRequest(req);
+    });
+
+    return () => {
+      rtc.disconnect();
+    };
+  }, [localId]);
+
+  const handleAcceptIncomingRequest = async (customPermissions?: SessionPermissions) => {
+    if (!incomingRequest || !rtcRef.current) return;
+    const req = incomingRequest;
+    const perms = customPermissions || permissions;
+    rtcRef.current.respondToRequest(req.fromId, true, perms);
+    setIncomingRequest(null);
+    
+    // If not already hosting, start host screen share
+    if (!hostStream) {
+      await handleStartHosting();
+    }
+  };
+
+  const handleRejectIncomingRequest = () => {
+    if (!incomingRequest || !rtcRef.current) return;
+    rtcRef.current.respondToRequest(incomingRequest.fromId, false, permissions);
+    setIncomingRequest(null);
+  };
+
+  // Persist devices whenever updated
+  useEffect(() => {
+    localStorage.setItem('mehdesk_saved_devices', JSON.stringify(devices));
+  }, [devices]);
 
   // Modals
   const [qrModalOpen, setQrModalOpen] = useState(false);
@@ -335,6 +352,9 @@ export default function App() {
             setPermissions={setPermissions}
             isRtl={isRtl}
             openQrModal={() => setQrModalOpen(true)}
+            incomingRequest={incomingRequest}
+            onAcceptIncomingRequest={handleAcceptIncomingRequest}
+            onRejectIncomingRequest={handleRejectIncomingRequest}
           />
         )}
 
@@ -481,6 +501,15 @@ export default function App() {
         isOpen={deployModalOpen}
         onClose={() => setDeployModalOpen(false)}
         isRtl={isRtl}
+      />
+
+      {/* INCOMING REMOTE CONNECTION REQUEST MODAL */}
+      <IncomingConnectionDialog
+        request={incomingRequest}
+        onAccept={handleAcceptIncomingRequest}
+        onReject={handleRejectIncomingRequest}
+        isRtl={isRtl}
+        defaultPermissions={permissions}
       />
     </div>
   );

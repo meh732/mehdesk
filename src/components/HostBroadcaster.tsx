@@ -35,6 +35,13 @@ interface HostBroadcasterProps {
   setPermissions: React.Dispatch<React.SetStateAction<SessionPermissions>>;
   isRtl: boolean;
   openQrModal: () => void;
+  incomingRequest?: {
+    fromId: string;
+    requesterName: string;
+    requesterDevice: string;
+  } | null;
+  onAcceptIncomingRequest?: (permissions?: SessionPermissions) => void;
+  onRejectIncomingRequest?: () => void;
 }
 
 export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
@@ -47,21 +54,16 @@ export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
   permissions,
   setPermissions,
   isRtl,
-  openQrModal
+  openQrModal,
+  incomingRequest,
+  onAcceptIncomingRequest,
+  onRejectIncomingRequest
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [micEnabled, setMicEnabled] = useState(false);
   const [privacyScreen, setPrivacyScreen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showConsentModal, setShowConsentModal] = useState(false);
-
-  // Incoming test connection request state for interactive demo
-  const [incomingRequest, setIncomingRequest] = useState<{
-    id: string;
-    name: string;
-    device: string;
-    ip: string;
-  } | null>(null);
 
   const [connectedGuests, setConnectedGuests] = useState<Array<{
     id: string;
@@ -98,18 +100,18 @@ export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
       setConnectedGuests(prev => [
         ...prev,
         {
-          id: incomingRequest.id,
-          name: incomingRequest.name,
-          device: incomingRequest.device,
+          id: incomingRequest.fromId,
+          name: incomingRequest.requesterName,
+          device: incomingRequest.requesterDevice,
           connectedAt: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })
         }
       ]);
-      setIncomingRequest(null);
+      onAcceptIncomingRequest?.(permissions);
     }
   };
 
   const handleRejectRequest = () => {
-    setIncomingRequest(null);
+    onRejectIncomingRequest?.();
   };
 
   return (
@@ -187,9 +189,9 @@ export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
                 <div className="text-xs font-bold text-amber-400 uppercase tracking-wider">
                   {isRtl ? 'درخواست اتصال ریموت ورودی' : 'Incoming Connection Request'}
                 </div>
-                <div className="text-sm font-bold text-white mt-0.5">{incomingRequest.name}</div>
+                <div className="text-sm font-bold text-white mt-0.5">{incomingRequest.requesterName}</div>
                 <div className="text-xs text-slate-400 font-mono mt-0.5">
-                  ID: {incomingRequest.id} | {incomingRequest.device} | IP: {incomingRequest.ip}
+                  ID: {incomingRequest.fromId} | {incomingRequest.requesterDevice}
                 </div>
               </div>
             </div>
