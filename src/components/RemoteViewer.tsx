@@ -214,11 +214,70 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
   const sendKeyCombination = (combo: string) => {
     setActionsMenuOpen(false);
     if (combo === 'Ctrl+Alt+Del') {
-      alert(isRtl ? 'دستور امنیتی Ctrl+Alt+Del به سیستم ریموت ارسال شد.' : 'Sent Ctrl+Alt+Del to remote machine.');
+      onSendInput?.({
+        type: 'keydown',
+        key: 'Delete',
+        code: 'Delete',
+        ctrlKey: true,
+        altKey: true
+      });
     } else if (combo === 'Win+L') {
-      alert(isRtl ? 'سیستم ریموت با موفقیت قفل شد (Lock Screen).' : 'Remote workstation locked.');
+      onSendInput?.({
+        type: 'keydown',
+        key: 'l',
+        code: 'KeyL',
+        metaKey: true
+      });
     } else if (combo === 'Ctrl+Shift+Esc') {
-      alert(isRtl ? 'دستور باز کردن Task Manager ارسال شد.' : 'Task Manager command sent.');
+      onSendInput?.({
+        type: 'keydown',
+        key: 'Escape',
+        code: 'Escape',
+        ctrlKey: true,
+        shiftKey: true
+      });
+    } else if (combo === 'Win') {
+      onSendInput?.({
+        type: 'keydown',
+        key: 'LWin',
+        code: 'OSLeft'
+      });
+    } else if (combo === 'Alt+Tab') {
+      onSendInput?.({
+        type: 'keydown',
+        key: 'Tab',
+        code: 'Tab',
+        altKey: true
+      });
+    } else if (combo === 'Escape') {
+      onSendInput?.({
+        type: 'keydown',
+        key: 'Escape',
+        code: 'Escape'
+      });
+    } else if (combo === 'Enter') {
+      onSendInput?.({
+        type: 'keydown',
+        key: 'Enter',
+        code: 'Enter'
+      });
+    } else if (combo === 'Backspace') {
+      onSendInput?.({
+        type: 'keydown',
+        key: 'Backspace',
+        code: 'Backspace'
+      });
+    }
+  };
+
+  const handleSendTextToRemote = (text: string) => {
+    if (!text) return;
+    for (const char of text) {
+      onSendInput?.({
+        type: 'keydown',
+        key: char,
+        code: char === ' ' ? 'Space' : undefined
+      });
     }
   };
 
@@ -326,47 +385,140 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
     setActiveModifiers(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const getVideoCoordinates = (clientX: number, clientY: number) => {
+    const video = videoRef.current;
+    if (!video) return null;
+    const rect = video.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
+
+    const videoW = video.videoWidth || 1920;
+    const videoH = video.videoHeight || 1080;
+    const videoAspect = videoW / videoH;
+    const rectAspect = rect.width / rect.height;
+
+    let renderW = rect.width;
+    let renderH = rect.height;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    if (rectAspect > videoAspect) {
+      renderW = rect.height * videoAspect;
+      offsetX = (rect.width - renderW) / 2;
+    } else {
+      renderH = rect.width / videoAspect;
+      offsetY = (rect.height - renderH) / 2;
+    }
+
+    const clickX = clientX - rect.left - offsetX;
+    const clickY = clientY - rect.top - offsetY;
+
+    const normX = Math.max(0, Math.min(1, clickX / renderW));
+    const normY = Math.max(0, Math.min(1, clickY / renderH));
+
+    return {
+      normX,
+      normY,
+      pxX: normX * 1920,
+      pxY: normY * 1080
+    };
+  };
+
   // Keyboard capture for remote typing
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       const activeTag = (document.activeElement as HTMLElement)?.tagName;
       if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return;
+
+      // Prevent browser default actions that disrupt remote desktop control
+      if (['Backspace', 'Tab', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.code) ||
+          (e.altKey && e.code === 'Tab')) {
+        e.preventDefault();
+      }
+
       onSendInput?.({
         type: 'keydown',
         key: e.key,
         code: e.code,
         ctrlKey: e.ctrlKey,
         altKey: e.altKey,
-        shiftKey: e.shiftKey
+        shiftKey: e.shiftKey,
+        metaKey: e.metaKey
       });
     };
+
+    const handleGlobalKeyUp = (e: KeyboardEvent) => {
+      const activeTag = (document.activeElement as HTMLElement)?.tagName;
+      if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return;
+
+      onSendInput?.({
+        type: 'keyup',
+        key: e.key,
+        code: e.code,
+        ctrlKey: e.ctrlKey,
+        altKey: e.altKey,
+        shiftKey: e.shiftKey,
+        metaKey: e.metaKey
+      });
+    };
+
     window.addEventListener('keydown', handleGlobalKeyDown);
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+    window.addEventListener('keyup', handleGlobalKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleGlobalKeyDown);
+      window.removeEventListener('keyup', handleGlobalKeyUp);
+    };
   }, [onSendInput]);
 
   const handleDesktopMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (whiteboardActive) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return;
-    const normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-    setMousePos({ x: normX * 1920, y: normY * 1080 });
-    onSendInput?.({ type: 'mousemove', x: normX, y: normY });
+    const coords = getVideoCoordinates(e.clientX, e.clientY);
+    if (!coords) return;
+    setMousePos({ x: coords.pxX, y: coords.pxY });
+    onSendInput?.({ type: 'mousemove', x: coords.normX, y: coords.normY });
   };
 
   const handleDesktopMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     if (whiteboardActive) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return;
-    const normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    const coords = getVideoCoordinates(e.clientX, e.clientY);
+    if (!coords) return;
     const btn = e.button === 2 ? 'right' : e.button === 1 ? 'middle' : 'left';
     if (btn === 'left') {
-      triggerLeftClick(normX * 1920, normY * 1080);
+      triggerLeftClick(coords.pxX, coords.pxY);
     } else if (btn === 'right') {
-      triggerRightClick(normX * 1920, normY * 1080);
+      triggerRightClick(coords.pxX, coords.pxY);
     }
-    onSendInput?.({ type: 'click', button: btn, x: normX, y: normY });
+    onSendInput?.({ type: 'mousedown', button: btn, x: coords.normX, y: coords.normY });
+  };
+
+  const handleDesktopMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (whiteboardActive) return;
+    const coords = getVideoCoordinates(e.clientX, e.clientY);
+    if (!coords) return;
+    const btn = e.button === 2 ? 'right' : e.button === 1 ? 'middle' : 'left';
+    onSendInput?.({ type: 'mouseup', button: btn, x: coords.normX, y: coords.normY });
+    onSendInput?.({ type: 'click', button: btn, x: coords.normX, y: coords.normY });
+  };
+
+  const handleDesktopDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (whiteboardActive) return;
+    const coords = getVideoCoordinates(e.clientX, e.clientY);
+    if (!coords) return;
+    const btn = e.button === 2 ? 'right' : 'left';
+    onSendInput?.({ type: 'dblclick', button: btn, x: coords.normX, y: coords.normY });
+  };
+
+  const handleDesktopWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    if (whiteboardActive) return;
+    const coords = getVideoCoordinates(e.clientX, e.clientY);
+    const normX = coords?.normX ?? 0.5;
+    const normY = coords?.normY ?? 0.5;
+    onSendInput?.({
+      type: 'wheel',
+      deltaX: e.deltaX,
+      deltaY: e.deltaY,
+      x: normX,
+      y: normY
+    });
   };
 
   return (
@@ -626,6 +778,88 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
         </div>
       )}
 
+      {/* QUICK KEYS & TEXT TRANSMITTER SUB-BAR */}
+      <div className="bg-[#151822] border-b border-slate-800 px-3 py-1 flex flex-wrap items-center justify-between gap-2 text-xs z-20">
+        {/* Quick Functional Keys */}
+        <div className="flex items-center gap-1 overflow-x-auto py-0.5 scrollbar-none">
+          <span className="text-[11px] text-slate-400 font-medium ml-1 hidden sm:inline">
+            {isRtl ? 'کلیدهای سریع:' : 'Quick Keys:'}
+          </span>
+          <button
+            onClick={() => sendKeyCombination('Win')}
+            className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] font-mono hover:text-white transition-colors"
+            title={isRtl ? 'باز کردن منوی استارت ویندوز' : 'Windows Start Key'}
+          >
+            Win 🪟
+          </button>
+          <button
+            onClick={() => sendKeyCombination('Alt+Tab')}
+            className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] font-mono hover:text-white transition-colors"
+            title={isRtl ? 'جابه‌جایی بین پنجره‌ها' : 'Switch Windows (Alt+Tab)'}
+          >
+            Alt+Tab 🔄
+          </button>
+          <button
+            onClick={() => sendKeyCombination('Ctrl+Alt+Del')}
+            className="px-2 py-0.5 rounded bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-800/60 text-[11px] font-mono transition-colors"
+            title={isRtl ? 'دستور امنیتی ویندوز' : 'Security Attention Sequence'}
+          >
+            Ctrl+Alt+Del
+          </button>
+          <button
+            onClick={() => sendKeyCombination('Ctrl+Shift+Esc')}
+            className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] font-mono hover:text-white transition-colors"
+            title={isRtl ? 'باز کردن تسک منیجر' : 'Task Manager'}
+          >
+            TaskMgr
+          </button>
+          <button
+            onClick={() => sendKeyCombination('Escape')}
+            className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] font-mono hover:text-white transition-colors"
+          >
+            Esc
+          </button>
+          <button
+            onClick={() => sendKeyCombination('Enter')}
+            className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] font-mono hover:text-white transition-colors"
+          >
+            Enter ↵
+          </button>
+          <button
+            onClick={() => sendKeyCombination('Backspace')}
+            className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] font-mono hover:text-white transition-colors"
+          >
+            ⌫
+          </button>
+        </div>
+
+        {/* Text Transmitter (Type or paste text into remote application) */}
+        <div className="flex items-center gap-1.5 flex-1 max-w-sm ml-auto">
+          <input
+            type="text"
+            placeholder={isRtl ? 'نوشتن یا پیست متن/رمز برای تایپ در ریموت...' : 'Type or paste text to send to remote...'}
+            value={mobileTextInput}
+            onChange={(e) => setMobileTextInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                handleSendTextToRemote(mobileTextInput);
+                setMobileTextInput('');
+              }
+            }}
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-red-500 font-sans"
+          />
+          <button
+            onClick={() => {
+              handleSendTextToRemote(mobileTextInput);
+              setMobileTextInput('');
+            }}
+            className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-medium whitespace-nowrap shadow transition-colors flex items-center gap-1"
+          >
+            <span>{isRtl ? 'تایپ' : 'Type'}</span>
+          </button>
+        </div>
+      </div>
+
       {/* REMOTE SCREEN CANVAS / VIDEO STAGE */}
       <div 
         className="flex-1 relative bg-black flex items-center justify-center overflow-hidden touch-none"
@@ -634,7 +868,14 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
         onTouchEnd={handleScreenTouchEnd}
         onMouseMove={handleDesktopMouseMove}
         onMouseDown={handleDesktopMouseDown}
-        onContextMenu={(e) => { e.preventDefault(); handleDesktopMouseDown(e); }}
+        onMouseUp={handleDesktopMouseUp}
+        onDoubleClick={handleDesktopDoubleClick}
+        onWheel={handleDesktopWheel}
+        onContextMenu={(e) => { 
+          e.preventDefault(); 
+          handleDesktopMouseDown(e); 
+          handleDesktopMouseUp(e);
+        }}
       >
         {/* Real WebRTC Video if stream exists */}
         {realStream ? (

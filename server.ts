@@ -543,6 +543,337 @@ function findActiveClient(query: string | undefined): any {
   return null;
 }
 
+// Map to track active native OS Input Agents (PowerShell on Windows, xdotool on Linux)
+const inputAgents = new Map<string, WebSocket>();
+
+// API endpoint to check if an OS input agent is active for a host ID
+app.get("/api/agent/status/:id", (req, res) => {
+  const queryId = normalizeDeskId(req.params.id);
+  const isAgentActive = inputAgents.has(queryId) && inputAgents.get(queryId)?.readyState === WebSocket.OPEN;
+  res.json({
+    success: true,
+    id: queryId,
+    active: isAgentActive
+  });
+});
+
+// API endpoint: Dynamic Windows PowerShell Native Input Agent script
+app.get("/api/agent/windows.ps1", (req, res) => {
+  const hostId = (req.query.id as string || "").replace(/\s/g, "");
+  const protocol = req.protocol === "https" ? "wss" : "ws";
+  const serverHost = req.get("host") || "localhost:3000";
+
+  const psScript = `# ==============================================================================
+# MehDesk Enterprise - Native Windows Mouse & Keyboard Input Agent
+# Allows remote operator to control Windows desktop, mouse cursor & keyboard
+# ==============================================================================
+param(
+    [string]$Id = "${hostId}"
+)
+
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Clear-Host
+
+Write-Host "================================================================" -ForegroundColor Cyan
+Write-Host "    MehDesk Enterprise - Windows Native Input Control Agent     " -ForegroundColor Yellow
+Write-Host "================================================================" -ForegroundColor Cyan
+
+if ([string]::IsNullOrWhiteSpace($Id)) {
+    $Id = Read-Host "Enter your MehDesk 9-digit ID"
+}
+$Id = $Id -replace '\\s',''
+
+Write-Host "[1/3] Loading Windows User32 Native APIs..." -ForegroundColor Cyan
+
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+$Source = @"
+using System;
+using System.Runtime.InteropServices;
+
+public class WinInputNative {
+    [DllImport("user32.dll")]
+    public static extern bool SetCursorPos(int X, int Y);
+
+    [DllImport("user32.dll")]
+    public static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, UIntPtr dwExtraInfo);
+
+    [DllImport("user32.dll")]
+    public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
+    public const uint MOUSEEVENTF_LEFTDOWN   = 0x0002;
+    public const uint MOUSEEVENTF_LEFTUP     = 0x0004;
+    public const uint MOUSEEVENTF_RIGHTDOWN  = 0x0008;
+    public const uint MOUSEEVENTF_RIGHTUP    = 0x0010;
+    public const uint MOUSEEVENTF_MIDDLEDOWN = 0x0020;
+    public const uint MOUSEEVENTF_MIDDLEUP   = 0x0040;
+    public const uint MOUSEEVENTF_WHEEL      = 0x0800;
+}
+"@
+Add-Type -TypeDefinition $Source -ErrorAction SilentlyContinue
+
+Write-Host "[2/3] Connecting to MehDesk Signaling Engine..." -ForegroundColor Cyan
+
+$WsUrl = "${protocol}://${serverHost}/ws"
+$ws = New-Object System.Net.WebSockets.ClientWebSocket
+$cts = New-Object System.Threading.CancellationTokenSource
+$uri = New-Object System.Uri($WsUrl)
+
+try {
+    $ws.ConnectAsync($uri, $cts.Token).Wait(10000)
+} catch {
+    Write-Host "[ERROR] Could not connect to $WsUrl : $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Press enter to exit..."
+    Read-Host
+    Exit
+}
+
+if ($ws.State -ne [System.Net.WebSockets.WebSocketState]::Open) {
+    Write-Host "[ERROR] WebSocket connection failed." -ForegroundColor Red
+    Write-Host "Press enter to exit..."
+    Read-Host
+    Exit
+}
+
+Write-Host "[3/3] Registering Host ID: $Id as OS Input Controller..." -ForegroundColor Cyan
+
+$regObj = @{
+    type = "register_agent"
+    id = $Id
+    hostname = $env:COMPUTERNAME
+    os = "windows"
+} | ConvertTo-Json -Compress
+
+$regBytes = [System.Text.Encoding]::UTF8.GetBytes($regObj)
+$regSegment = New-Object System.ArraySegment[byte] -ArgumentList @(,$regBytes)
+$ws.SendAsync($regSegment, [System.Net.WebSockets.WebSocketMessageType]::Text, $true, $cts.Token).Wait()
+
+Write-Host ""
+Write-Host "================================================================" -ForegroundColor Green
+Write-Host "  SUCCESS! Native Mouse & Keyboard Agent is ACTIVE for ID: $Id" -ForegroundColor Green
+Write-Host "  Live mouse movement, clicks, scrolling & typing are enabled.  " -ForegroundColor Yellow
+Write-Host "  (Keep this window open to maintain remote control access)     " -ForegroundColor Gray
+Write-Host "================================================================" -ForegroundColor Green
+Write-Host ""
+
+$buffer = New-Object byte[] 65536
+$segment = New-Object System.ArraySegment[byte] -ArgumentList @(,$buffer)
+
+while ($ws.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
+    try {
+        $recvTask = $ws.ReceiveAsync($segment, $cts.Token)
+        $recv = $recvTask.Result
+        if ($recv.MessageType -eq [System.Net.WebSockets.WebSocketMessageType]::Close) {
+            break
+        }
+        $jsonStr = [System.Text.Encoding]::UTF8.GetString($buffer, 0, $recv.Count)
+        if ([string]::IsNullOrWhiteSpace($jsonStr)) { continue }
+
+        $msg = $jsonStr | ConvertFrom-Json -ErrorAction SilentlyContinue
+        if ($null -eq $msg) { continue }
+
+        $screenBounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+        $screenWidth = $screenBounds.Width
+        $screenHeight = $screenBounds.Height
+
+        if ($null -ne $msg.x -and $null -ne $msg.y) {
+            $targetX = [int][Math]::Round($msg.x * $screenWidth)
+            $targetY = [int][Math]::Round($msg.y * $screenHeight)
+            [WinInputNative]::SetCursorPos($targetX, $targetY) | Out-Null
+        }
+
+        switch ($msg.type) {
+            "mousemove" {
+                # Already moved above
+            }
+            "mousedown" {
+                if ($msg.button -eq "right") {
+                    [WinInputNative]::mouse_event([WinInputNative]::MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, [UIntPtr]::Zero)
+                } elseif ($msg.button -eq "middle") {
+                    [WinInputNative]::mouse_event([WinInputNative]::MOUSEEVENTF_MIDDLEDOWN, 0, 0, 0, [UIntPtr]::Zero)
+                } else {
+                    [WinInputNative]::mouse_event([WinInputNative]::MOUSEEVENTF_LEFTDOWN, 0, 0, 0, [UIntPtr]::Zero)
+                }
+            }
+            "mouseup" {
+                if ($msg.button -eq "right") {
+                    [WinInputNative]::mouse_event([WinInputNative]::MOUSEEVENTF_RIGHTUP, 0, 0, 0, [UIntPtr]::Zero)
+                } elseif ($msg.button -eq "middle") {
+                    [WinInputNative]::mouse_event([WinInputNative]::MOUSEEVENTF_MIDDLEUP, 0, 0, 0, [UIntPtr]::Zero)
+                } else {
+                    [WinInputNative]::mouse_event([WinInputNative]::MOUSEEVENTF_LEFTUP, 0, 0, 0, [UIntPtr]::Zero)
+                }
+            }
+            "click" {
+                if ($msg.button -eq "right") {
+                    [WinInputNative]::mouse_event([WinInputNative]::MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, [UIntPtr]::Zero)
+                    [WinInputNative]::mouse_event([WinInputNative]::MOUSEEVENTF_RIGHTUP, 0, 0, 0, [UIntPtr]::Zero)
+                } elseif ($msg.button -eq "middle") {
+                    [WinInputNative]::mouse_event([WinInputNative]::MOUSEEVENTF_MIDDLEDOWN, 0, 0, 0, [UIntPtr]::Zero)
+                    [WinInputNative]::mouse_event([WinInputNative]::MOUSEEVENTF_MIDDLEUP, 0, 0, 0, [UIntPtr]::Zero)
+                } else {
+                    [WinInputNative]::mouse_event([WinInputNative]::MOUSEEVENTF_LEFTDOWN, 0, 0, 0, [UIntPtr]::Zero)
+                    [WinInputNative]::mouse_event([WinInputNative]::MOUSEEVENTF_LEFTUP, 0, 0, 0, [UIntPtr]::Zero)
+                }
+            }
+            "dblclick" {
+                [WinInputNative]::mouse_event([WinInputNative]::MOUSEEVENTF_LEFTDOWN, 0, 0, 0, [UIntPtr]::Zero)
+                [WinInputNative]::mouse_event([WinInputNative]::MOUSEEVENTF_LEFTUP, 0, 0, 0, [UIntPtr]::Zero)
+                Start-Sleep -Milliseconds 50
+                [WinInputNative]::mouse_event([WinInputNative]::MOUSEEVENTF_LEFTDOWN, 0, 0, 0, [UIntPtr]::Zero)
+                [WinInputNative]::mouse_event([WinInputNative]::MOUSEEVENTF_LEFTUP, 0, 0, 0, [UIntPtr]::Zero)
+            }
+            "wheel" {
+                $wheelDelta = if ($msg.deltaY) { [int](-$msg.deltaY * 2) } else { 0 }
+                [WinInputNative]::mouse_event([WinInputNative]::MOUSEEVENTF_WHEEL, 0, 0, $wheelDelta, [UIntPtr]::Zero)
+            }
+            "keydown" {
+                if ($msg.key -or $msg.code) {
+                    $k = $msg.key
+                    $code = $msg.code
+                    try {
+                        if ($k -eq "LWin" -or $code -eq "OSLeft" -or $code -eq "OSRight") {
+                            # Windows Key (0x5B)
+                            [WinInputNative]::keybd_event(0x5B, 0, 0, [UIntPtr]::Zero)
+                            Start-Sleep -Milliseconds 30
+                            [WinInputNative]::keybd_event(0x5B, 0, 2, [UIntPtr]::Zero)
+                        } elseif ($msg.altKey -and ($k -eq "Tab" -or $code -eq "Tab")) {
+                            # Alt + Tab
+                            [WinInputNative]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero) # ALT
+                            [WinInputNative]::keybd_event(0x09, 0, 0, [UIntPtr]::Zero) # TAB
+                            Start-Sleep -Milliseconds 30
+                            [WinInputNative]::keybd_event(0x09, 0, 2, [UIntPtr]::Zero)
+                            [WinInputNative]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+                        } elseif ($msg.ctrlKey -and $k -and $k.Length -eq 1) {
+                            # Ctrl + key combinations (e.g. Ctrl+C, Ctrl+V, Ctrl+A, Ctrl+Z)
+                            [System.Windows.Forms.SendKeys]::SendWait("^" + $k.ToLower())
+                        } else {
+                            switch ($k) {
+                                "Enter"     { [System.Windows.Forms.SendKeys]::SendWait("{ENTER}") }
+                                "Backspace" { [System.Windows.Forms.SendKeys]::SendWait("{BACKSPACE}") }
+                                "Tab"       { [System.Windows.Forms.SendKeys]::SendWait("{TAB}") }
+                                "Escape"    { [System.Windows.Forms.SendKeys]::SendWait("{ESC}") }
+                                "Delete"    { [System.Windows.Forms.SendKeys]::SendWait("{DEL}") }
+                                "ArrowUp"   { [System.Windows.Forms.SendKeys]::SendWait("{UP}") }
+                                "ArrowDown" { [System.Windows.Forms.SendKeys]::SendWait("{DOWN}") }
+                                "ArrowLeft" { [System.Windows.Forms.SendKeys]::SendWait("{LEFT}") }
+                                "ArrowRight"{ [System.Windows.Forms.SendKeys]::SendWait("{RIGHT}") }
+                                "Home"      { [System.Windows.Forms.SendKeys]::SendWait("{HOME}") }
+                                "End"       { [System.Windows.Forms.SendKeys]::SendWait("{END}") }
+                                "PageUp"    { [System.Windows.Forms.SendKeys]::SendWait("{PGUP}") }
+                                "PageDown"  { [System.Windows.Forms.SendKeys]::SendWait("{PGDN}") }
+                                " "         { [System.Windows.Forms.SendKeys]::SendWait(" ") }
+                                Default {
+                                    if ($k.Length -eq 1) {
+                                        $escaped = $k -replace '([+^%~(){}\\[\\]])', '{$1}'
+                                        [System.Windows.Forms.SendKeys]::SendWait($escaped)
+                                    }
+                                }
+                            }
+                        }
+                    } catch {}
+                }
+            }
+        }
+    } catch {
+        Start-Sleep -Milliseconds 10
+    }
+}
+`;
+
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.send(psScript);
+});
+
+// API endpoint: 1-Click Windows Batch file downloader
+app.get(["/api/agent/mehdesk-agent.bat", "/api/agent/download-windows"], (req, res) => {
+  const hostId = (req.query.id as string || "").replace(/\s/g, "");
+  const protocol = req.protocol === "https" ? "https" : "http";
+  const serverHost = req.get("host") || "localhost:3000";
+
+  const batScript = `@echo off
+chcp 65001 >nul
+title MehDesk Windows Input Agent
+set HOST_ID=${hostId}
+if "%HOST_ID%"=="" (
+    set /p HOST_ID="Enter your MehDesk ID (or press Enter if shown in browser): "
+)
+echo Connecting MehDesk Windows Mouse and Keyboard Agent...
+powershell -ExecutionPolicy Bypass -NoProfile -Command "iwr -useb '${protocol}://${serverHost}/api/agent/windows.ps1?id=%HOST_ID%' | iex"
+pause
+`;
+
+  res.setHeader("Content-Type", "application/x-bat");
+  res.setHeader("Content-Disposition", `attachment; filename="mehdesk-input-agent${hostId ? '-' + hostId : ''}.bat"`);
+  res.send(batScript);
+});
+
+// API endpoint: Linux bash agent downloader
+app.get("/api/agent/linux.sh", (req, res) => {
+  const hostId = (req.query.id as string || "").replace(/\s/g, "");
+  const protocol = req.protocol === "https" ? "wss" : "ws";
+  const serverHost = req.get("host") || "localhost:3000";
+
+  const shScript = `#!/bin/bash
+# MehDesk Linux Input Agent using xdotool
+ID="${hostId}"
+if [ -z "$ID" ]; then
+    read -p "Enter MehDesk ID: " ID
+fi
+ID=$(echo "$ID" | tr -d ' ')
+
+if ! command -v xdotool &>/dev/null; then
+    echo "Installing xdotool for mouse & keyboard emulation..."
+    sudo apt-get update && sudo apt-get install -y xdotool || sudo yum install -y xdotool
+fi
+
+python3 -c "
+import json, subprocess, sys
+try:
+    import websocket
+except ImportError:
+    subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'websocket-client'])
+    import websocket
+
+def on_message(ws, msg):
+    try:
+        d = json.loads(msg)
+        t = d.get('type')
+        if 'x' in d and 'y' in d:
+            geom = subprocess.check_output(['xdotool', 'getdisplaygeometry']).decode().split()
+            w, h = int(geom[0]), int(geom[1])
+            px = int(d['x'] * w)
+            py = int(d['y'] * h)
+            subprocess.run(['xdotool', 'mousemove', str(px), str(py)])
+        if t == 'click':
+            btn = 3 if d.get('button') == 'right' else 2 if d.get('button') == 'middle' else 1
+            subprocess.run(['xdotool', 'click', str(btn)])
+        elif t == 'mousedown':
+            btn = 3 if d.get('button') == 'right' else 2 if d.get('button') == 'middle' else 1
+            subprocess.run(['xdotool', 'mousedown', str(btn)])
+        elif t == 'mouseup':
+            btn = 3 if d.get('button') == 'right' else 2 if d.get('button') == 'middle' else 1
+            subprocess.run(['xdotool', 'mouseup', str(btn)])
+        elif t == 'keydown' and 'key' in d:
+            subprocess.run(['xdotool', 'key', d['key']])
+    except Exception as e:
+        pass
+
+def on_open(ws):
+    print('Connected! Registered Host ID: $ID')
+    ws.send(json.dumps({'type': 'register_agent', 'id': '$ID'}))
+
+ws = websocket.WebSocketApp('${protocol}://${serverHost}/ws', on_message=on_message, on_open=on_open)
+ws.run_forever()
+"
+`;
+
+  res.setHeader("Content-Type", "text/x-shellscript");
+  res.setHeader("Content-Disposition", `attachment; filename="mehdesk-agent-linux.sh"`);
+  res.send(shScript);
+});
+
 // API endpoint to check if an ID is currently active & online on the server
 app.get("/api/check-client/:id", (req, res) => {
   const queryId = req.params.id;
@@ -616,6 +947,42 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
           break;
         }
 
+        // Register native OS Input Agent (PowerShell/Linux)
+        case "register_agent": {
+          const agentId = normalizeDeskId(data.id);
+          if (!agentId) return;
+          peerId = `agent_${agentId}`;
+          inputAgents.set(agentId, ws);
+          console.log(`[InputAgent] Native OS Input Agent registered for Host ID: ${agentId}`);
+          ws.send(JSON.stringify({
+            type: "agent_registered",
+            id: agentId,
+            status: "active"
+          }));
+          // Notify active browser client for this host that native agent is connected
+          const hostClient = findActiveClient(agentId);
+          if (hostClient && hostClient.ws.readyState === WebSocket.OPEN) {
+            hostClient.ws.send(JSON.stringify({
+              type: "agent_status",
+              id: agentId,
+              active: true
+            }));
+          }
+          break;
+        }
+
+        // Query status of native OS input agent
+        case "agent_status_query": {
+          const queryId = normalizeDeskId(data.id || peerId);
+          const isAgentActive = inputAgents.has(queryId) && inputAgents.get(queryId)?.readyState === WebSocket.OPEN;
+          ws.send(JSON.stringify({
+            type: "agent_status",
+            id: queryId,
+            active: isAgentActive
+          }));
+          break;
+        }
+
         // Connection request from viewer to host
         case "connect_request":
         case "request_connect": {
@@ -684,11 +1051,28 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
           break;
         }
 
-        // WebRTC Signaling: Offer, Answer, ICE candidate, remote input & data forwarding
+        // Remote input (mouse movements, clicks, scrolling, key presses)
+        case "remote_input": {
+          const targetId = normalizeDeskId(data.targetId || data.toId);
+          const target = findActiveClient(targetId);
+          if (target && target.ws.readyState === WebSocket.OPEN) {
+            target.ws.send(JSON.stringify({
+              ...data,
+              senderId: normalizeDeskId(data.senderId || peerId)
+            }));
+          }
+          // Also forward directly to the OS Native Input Agent (Windows PowerShell / Linux xdotool)
+          const agentWs = inputAgents.get(targetId);
+          if (agentWs && agentWs.readyState === WebSocket.OPEN) {
+            agentWs.send(JSON.stringify(data));
+          }
+          break;
+        }
+
+        // WebRTC Signaling: Offer, Answer, ICE candidate & data forwarding
         case "signal_offer":
         case "signal_answer":
         case "signal_ice":
-        case "remote_input":
         case "clipboard_sync":
         case "file_meta":
         case "file_chunk":
@@ -716,6 +1100,23 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
   });
 
   ws.on("close", () => {
+    // Clean up input agent if this socket was an agent
+    for (const [id, agentWs] of inputAgents.entries()) {
+      if (agentWs === ws) {
+        console.log(`[InputAgent] Native agent disconnected for Host: ${id}`);
+        inputAgents.delete(id);
+        const hostClient = findActiveClient(id);
+        if (hostClient && hostClient.ws.readyState === WebSocket.OPEN) {
+          hostClient.ws.send(JSON.stringify({
+            type: "agent_status",
+            id,
+            active: false
+          }));
+        }
+        break;
+      }
+    }
+
     if (peerId) {
       console.log(`[WS] Socket closed event for: ${peerId}`);
       const current = activeClients.get(peerId);

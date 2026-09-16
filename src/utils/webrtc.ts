@@ -27,6 +27,7 @@ export class WebRtcClient {
   private onRemoteInputCallback: ((input: any) => void) | null = null;
   private onConnectionStatusCallback: ((status: string, details?: any) => void) | null = null;
   private onIncomingRequestCallback: ((request: any) => void) | null = null;
+  private onAgentStatusCallback: ((status: { id: string; active: boolean }) => void) | null = null;
   private localStream: MediaStream | null = null;
   private pingTimer: any = null;
   private reconnectTimer: any = null;
@@ -266,6 +267,14 @@ export class WebRtcClient {
         break;
       }
 
+      case 'agent_status': {
+        this.onAgentStatusCallback?.({
+          id: msg.id,
+          active: !!msg.active
+        });
+        break;
+      }
+
       case 'signal_offer': {
         console.log('[WebRTC] Received offer from host/peer:', msg.senderId);
         this.targetId = normalizeDeskId(msg.senderId);
@@ -439,13 +448,33 @@ export class WebRtcClient {
 
   public sendInputEvent(eventData: any) {
     const payload = { type: 'remote_input', ...eventData };
+    // Send via DataChannel for low-latency browser-side cursor rendering
     if (this.dataChannel && this.dataChannel.readyState === 'open') {
-      this.dataChannel.send(JSON.stringify(payload));
-    } else if (this.ws && this.ws.readyState === WebSocket.OPEN && this.targetId) {
+      try {
+        this.dataChannel.send(JSON.stringify(payload));
+      } catch (e) {
+        // DataChannel send error fallback
+      }
+    }
+    // Also send via WebSocket signaling so server forwards to Native OS Input Agent (PowerShell / Linux)
+    if (this.ws && this.ws.readyState === WebSocket.OPEN && this.targetId) {
       this.sendSignal({
         targetId: this.targetId,
         ...payload
       });
+    }
+  }
+
+  public onAgentStatus(cb: (status: { id: string; active: boolean }) => void) {
+    this.onAgentStatusCallback = cb;
+  }
+
+  public queryAgentStatus(targetHostId?: string) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        type: 'agent_status_query',
+        id: normalizeDeskId(targetHostId || this.localId)
+      }));
     }
   }
 
