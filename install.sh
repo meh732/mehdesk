@@ -196,12 +196,62 @@ show_menu() {
         6)
             read -p "Enter your server domain (e.g., remote.company.com): " USER_DOMAIN
             if [ -n "$USER_DOMAIN" ]; then
-                certbot --nginx -d "$USER_DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email || true
-                sed -i "s/DOMAIN=.*/DOMAIN=${USER_DOMAIN}/" "${INSTALL_DIR}/.env"
-                systemctl restart ${SERVICE_NAME}
-                echo -e "${GREEN}Domain and SSL certificate configured: https://${USER_DOMAIN}${NC}"
+                CURRENT_PORT="3000"
+                if [ -f "${INSTALL_DIR}/.env" ]; then
+                    source "${INSTALL_DIR}/.env"
+                    CURRENT_PORT="${PORT:-3000}"
+                fi
+
+                echo -e "${CYAN}Setting up Nginx reverse proxy on port ${CURRENT_PORT} for ${USER_DOMAIN}...${NC}"
+                
+                cat << NGINX_CONF > /etc/nginx/sites-available/mehdesk.conf
+server {
+    listen 80;
+    server_name ${USER_DOMAIN};
+
+    location / {
+        proxy_pass http://127.0.0.1:${CURRENT_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+        client_max_body_size 500M;
+    }
+}
+NGINX_CONF
+
+                mkdir -p /etc/nginx/sites-enabled
+                ln -sf /etc/nginx/sites-available/mehdesk.conf /etc/nginx/sites-enabled/mehdesk.conf
+                rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+
+                if nginx -t; then
+                    systemctl restart nginx
+                    systemctl enable nginx
+                    echo -e "${GREEN}[OK] Nginx configured and reloaded.${NC}"
+                fi
+
+                echo -e "${CYAN}Requesting Let's Encrypt SSL certificate...${NC}"
+                if certbot --nginx -d "${USER_DOMAIN}" --non-interactive --agree-tos --register-unsafely-without-email --redirect; then
+                    sed -i "s/DOMAIN=.*/DOMAIN=${USER_DOMAIN}/" "${INSTALL_DIR}/.env"
+                    systemctl reload nginx 2>/dev/null || true
+                    systemctl restart ${SERVICE_NAME}
+                    echo -e "\n${GREEN}🎉 Domain and SSL certificate configured successfully!${NC}"
+                    echo -e "Access URL: ${CYAN}https://${USER_DOMAIN}${NC}"
+                else
+                    echo -e "\n${RED}[ERROR] SSL certificate issuance failed.${NC}"
+                    echo -e "${YELLOW}Common causes:${NC}"
+                    echo -e " 1. Domain DNS (A Record) is not pointing to this server IP yet."
+                    echo -e " 2. Cloudflare Proxy (Orange Cloud) is enabled. Temporarily set to 'DNS Only' (Grey Cloud) and retry."
+                    echo -e " 3. Port 80 / 443 are blocked by your cloud provider firewall."
+                fi
             fi
-            sleep 3
+            echo -e "\nPress Enter to return to menu..."
+            read -r
             show_menu
             ;;
         7)
@@ -250,6 +300,70 @@ show_menu() {
 show_menu
 EOF
     chmod +x "${CLI_COMMAND}"
+}
+
+setup_domain_ssl() {
+    local target_domain="$1"
+    local current_port="3000"
+
+    if [ -f "${INSTALL_DIR}/.env" ]; then
+        source "${INSTALL_DIR}/.env"
+        current_port="${PORT:-3000}"
+    fi
+
+    echo -e "\n${CYAN}[SSL] Configuring Nginx Reverse Proxy on port ${current_port} for ${target_domain}...${NC}"
+
+    cat << NGINX_CONF > /etc/nginx/sites-available/mehdesk.conf
+server {
+    listen 80;
+    server_name ${target_domain};
+
+    location / {
+        proxy_pass http://127.0.0.1:${current_port};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+        client_max_body_size 500M;
+    }
+}
+NGINX_CONF
+
+    mkdir -p /etc/nginx/sites-enabled
+    ln -sf /etc/nginx/sites-available/mehdesk.conf /etc/nginx/sites-enabled/mehdesk.conf
+    rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+
+    if nginx -t; then
+        systemctl restart nginx
+        systemctl enable nginx
+        echo -e "${GREEN}[OK] Nginx configured and reloaded.${NC}"
+    fi
+
+    # Allow firewall
+    if command -v ufw >/dev/null 2>&1; then
+        ufw allow 80/tcp || true
+        ufw allow 443/tcp || true
+    fi
+
+    echo -e "${CYAN}[SSL] Requesting Let's Encrypt SSL certificate for ${target_domain}...${NC}"
+    if certbot --nginx -d "${target_domain}" --non-interactive --agree-tos --register-unsafely-without-email --redirect; then
+        sed -i "s/DOMAIN=.*/DOMAIN=${target_domain}/" "${INSTALL_DIR}/.env"
+        systemctl reload nginx 2>/dev/null || true
+        systemctl restart ${SERVICE_NAME}
+        echo -e "\n${GREEN}🎉 Domain and SSL certificate configured successfully!${NC}"
+        echo -e "Access URL: ${CYAN}https://${target_domain}${NC}"
+    else
+        echo -e "\n${RED}[ERROR] SSL certificate issuance failed.${NC}"
+        echo -e "${YELLOW}Common causes:${NC}"
+        echo -e " 1. Domain DNS (A Record) is not pointing to this server IP yet."
+        echo -e " 2. Cloudflare Proxy (Orange Cloud) is active. Temporarily switch to 'DNS Only' (Grey Cloud) and retry."
+        echo -e " 3. Port 80 / 443 are blocked by your cloud provider firewall."
+    fi
 }
 
 install_mehdesk_core() {
@@ -336,15 +450,19 @@ EOF
 
     create_cli_tool
 
+    if [ -n "$DOMAIN" ]; then
+        setup_domain_ssl "$DOMAIN"
+    fi
+
     # Detect IP
     SERVER_IP=$(curl -s4 icanhazip.com || curl -s4 ifconfig.me || hostname -I | awk '{print $1}')
 
     echo -e "\n${GREEN}${BOLD}===================================================================${NC}"
     echo -e "${GREEN}${BOLD}🎉 meh desk successfully installed and running!${NC}"
     echo -e "${GREEN}${BOLD}===================================================================${NC}"
-    echo -e " 🌐 Web Panel URL: ${CYAN}${BOLD}http://${SERVER_IP}:${PORT}${NC}"
+    echo -e " 🌐 Direct IP Web Panel: ${CYAN}${BOLD}http://${SERVER_IP}:${PORT}${NC}"
     if [ -n "$DOMAIN" ]; then
-        echo -e " 🔒 Custom Domain: ${CYAN}${BOLD}https://${DOMAIN}${NC}"
+        echo -e " 🔒 Custom Domain (SSL): ${CYAN}${BOLD}https://${DOMAIN}${NC}"
     fi
     echo -e " 🔑 Default Admin Master PIN: ${YELLOW}${BOLD}123456${NC}"
     echo -e " 💻 Terminal Management Command: ${CYAN}${BOLD}mehdesk${NC}"
@@ -423,12 +541,9 @@ main_interactive_menu() {
             fi
             ;;
         7)
-            read -p "Enter domain: " USER_DOMAIN
+            read -p "Enter domain (e.g. desk.domain.com): " USER_DOMAIN
             if [ -n "$USER_DOMAIN" ]; then
-                certbot --nginx -d "$USER_DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email || true
-                sed -i "s/DOMAIN=.*/DOMAIN=${USER_DOMAIN}/" "${INSTALL_DIR}/.env"
-                systemctl restart ${SERVICE_NAME}
-                echo -e "${GREEN}SSL configured.${NC}"
+                setup_domain_ssl "$USER_DOMAIN"
             fi
             ;;
         8)

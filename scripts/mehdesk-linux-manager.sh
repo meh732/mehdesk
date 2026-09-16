@@ -210,11 +210,113 @@ EOF
 
     SERVER_IP=$(curl -s4 icanhazip.com || curl -s4 ifconfig.me || hostname -I | awk '{print $1}')
 
-    echo -e "\n${GREEN}${BOLD}🎉 meh desk successfully installed and running!${NC}"
-    echo -e "Web Panel URL: http://${SERVER_IP}:${PORT}"
     if [ -n "$DOMAIN" ]; then
-        echo -e "Custom Domain: https://${DOMAIN}"
+        setup_nginx_ssl "$DOMAIN" "$PORT"
     fi
+
+    echo -e "\n${GREEN}${BOLD}🎉 meh desk successfully installed and running!${NC}"
+    echo -e "Direct IP Web Panel: http://${SERVER_IP}:${PORT}"
+    if [ -n "$DOMAIN" ]; then
+        echo -e "Domain Access (SSL): https://${DOMAIN}"
+    fi
+}
+
+setup_nginx_ssl() {
+    local domain="$1"
+    local port="$2"
+
+    if [ -z "$domain" ]; then
+        return 0
+    fi
+
+    echo -e "\n${CYAN}[SSL] Configuring Nginx Reverse Proxy & SSL for ${domain}...${NC}"
+
+    # Ensure Nginx & Certbot are installed
+    if command -v apt-get &>/dev/null; then
+        apt-get install -y nginx certbot python3-certbot-nginx
+    elif command -v dnf &>/dev/null; then
+        dnf install -y nginx certbot python3-certbot-nginx
+    fi
+
+    # Create Nginx site configuration with full WebSocket & PWA support
+    cat <<EOF > /etc/nginx/sites-available/mehdesk.conf
+server {
+    listen 80;
+    server_name ${domain};
+
+    location / {
+        proxy_pass http://127.0.0.1:${port};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+        client_max_body_size 500M;
+    }
+}
+EOF
+
+    mkdir -p /etc/nginx/sites-enabled
+    ln -sf /etc/nginx/sites-available/mehdesk.conf /etc/nginx/sites-enabled/mehdesk.conf
+    rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+
+    # Test nginx configuration
+    if nginx -t; then
+        systemctl restart nginx
+        systemctl enable nginx
+        echo -e "${GREEN}[OK] Nginx reverse proxy configured.${NC}"
+    else
+        echo -e "${RED}[ERROR] Nginx configuration test failed.${NC}"
+        return 1
+    fi
+
+    # Allow Firewall Ports
+    if command -v ufw &>/dev/null; then
+        ufw allow 80/tcp || true
+        ufw allow 443/tcp || true
+    fi
+
+    # Request Let's Encrypt SSL Certificate
+    echo -e "${CYAN}[SSL] Requesting Free Let's Encrypt SSL Certificate for ${domain}...${NC}"
+    read -p "Enter email for SSL expiration notices (e.g. admin@yourdomain.com): " SSL_EMAIL
+    local email_param=""
+    if [ -n "$SSL_EMAIL" ]; then
+        email_param="--email ${SSL_EMAIL}"
+    else
+        email_param="--register-unsafely-without-email"
+    fi
+
+    certbot --nginx -d "${domain}" --non-interactive --agree-tos ${email_param} --redirect || {
+        echo -e "${YELLOW}[WARN] Automatic Certbot SSL configuration failed.${NC}"
+        echo -e "${YELLOW}Reason: Make sure your Domain DNS (A Record) points to this server IP before requesting SSL.${NC}"
+        echo -e "${YELLOW}You can re-run SSL setup anytime from menu option 3.${NC}"
+    }
+
+    systemctl reload nginx 2>/dev/null || true
+}
+
+configure_standalone_ssl() {
+    echo -e "\n${BOLD}${CYAN}=== Configure Domain & Free SSL (HTTPS) ===${NC}\n"
+    read -p "🔹 Enter Your Domain (e.g. desk.domain.com): " DOM_INPUT
+    if [ -z "$DOM_INPUT" ]; then
+        echo -e "${RED}Error: Domain cannot be empty.${NC}"
+        return 1
+    fi
+
+    local current_port="3000"
+    if [ -f "${ENV_FILE}" ]; then
+        source "${ENV_FILE}"
+        current_port="${PORT:-3000}"
+    fi
+
+    read -p "🔹 Backend Service Port [Default: ${current_port}]: " PORT_CONFIRM
+    local target_port=${PORT_CONFIRM:-$current_port}
+
+    setup_nginx_ssl "$DOM_INPUT" "$target_port"
 }
 
 update_mehdesk() {
@@ -249,16 +351,18 @@ check_root
 
 echo -e "Please select an option:\n"
 echo -e "  ${GREEN}1)${NC} Install / Reinstall meh desk"
-echo -e "  ${CYAN}2)${NC} Update to Latest Release"
-echo -e "  ${RED}3)${NC} Uninstall Service"
-echo -e "  ${YELLOW}4)${NC} Exit\n"
+echo -e "  ${CYAN}2)${NC} Update to Latest Release (No Data Loss)"
+echo -e "  ${PURPLE}3)${NC} Setup Domain & Free SSL (Nginx / Certbot)"
+echo -e "  ${RED}4)${NC} Uninstall Service"
+echo -e "  ${YELLOW}5)${NC} Exit\n"
 
-read -p "Select an option [1-4]: " CHOICE
+read -p "Select an option [1-5]: " CHOICE
 
 case "$CHOICE" in
     1) install_mehdesk ;;
     2) update_mehdesk ;;
-    3) uninstall_mehdesk ;;
-    4) exit 0 ;;
+    3) configure_standalone_ssl ;;
+    4) uninstall_mehdesk ;;
+    5) exit 0 ;;
     *) echo -e "${RED}Invalid selection.${NC}"; exit 1 ;;
 esac
