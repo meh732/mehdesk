@@ -98,8 +98,12 @@ export class WebRtcClient {
     };
 
     pc.ontrack = (event) => {
+      console.log('WebRTC ontrack received:', event);
       if (event.streams && event.streams[0]) {
         this.onRemoteStreamCallback?.(event.streams[0]);
+      } else if (event.track) {
+        const stream = new MediaStream([event.track]);
+        this.onRemoteStreamCallback?.(stream);
       }
     };
 
@@ -109,6 +113,7 @@ export class WebRtcClient {
     };
 
     pc.onconnectionstatechange = () => {
+      console.log('WebRTC Connection state changed:', pc.connectionState);
       this.onConnectionStatusCallback?.(pc.connectionState);
     };
 
@@ -125,6 +130,22 @@ export class WebRtcClient {
         this.onDataMessageCallback?.(event.data);
       }
     };
+  }
+
+  private iceCandidatesQueue: RTCIceCandidateInit[] = [];
+
+  private async flushIceCandidatesQueue() {
+    if (!this.peerConnection || !this.peerConnection.remoteDescription) return;
+    while (this.iceCandidatesQueue.length > 0) {
+      const candidate = this.iceCandidatesQueue.shift();
+      if (candidate) {
+        try {
+          await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (e) {
+          console.warn('Error adding queued ICE candidate:', e);
+        }
+      }
+    }
   }
 
   private async handleSignalingMessage(msg: any) {
@@ -168,6 +189,7 @@ export class WebRtcClient {
         }
 
         await this.peerConnection.setRemoteDescription(new RTCSessionDescription(msg.offer));
+        await this.flushIceCandidatesQueue();
         const answer = await this.peerConnection.createAnswer();
         await this.peerConnection.setLocalDescription(answer);
 
@@ -182,16 +204,21 @@ export class WebRtcClient {
       case 'signal_answer': {
         if (this.peerConnection) {
           await this.peerConnection.setRemoteDescription(new RTCSessionDescription(msg.answer));
+          await this.flushIceCandidatesQueue();
         }
         break;
       }
 
       case 'signal_ice': {
-        if (this.peerConnection && msg.candidate) {
-          try {
-            await this.peerConnection.addIceCandidate(new RTCIceCandidate(msg.candidate));
-          } catch (e) {
-            console.error('Error adding ICE candidate:', e);
+        if (msg.candidate) {
+          if (this.peerConnection && this.peerConnection.remoteDescription && this.peerConnection.remoteDescription.type) {
+            try {
+              await this.peerConnection.addIceCandidate(new RTCIceCandidate(msg.candidate));
+            } catch (e) {
+              console.warn('Error adding ICE candidate:', e);
+            }
+          } else {
+            this.iceCandidatesQueue.push(msg.candidate);
           }
         }
         break;
@@ -236,6 +263,19 @@ export class WebRtcClient {
   public async setLocalStream(stream: MediaStream | null) {
     this.localStream = stream;
     this.isHost = !!stream;
+
+    if (this.peerConnection && stream) {
+      const senders = this.peerConnection.getSenders();
+      stream.getTracks().forEach(track => {
+        const sender = senders.find(s => s.track?.kind === track.kind);
+        if (sender) {
+          sender.replaceTrack(track);
+        } else {
+          this.peerConnection?.addTrack(track, stream);
+        }
+      });
+    }
+
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({
         type: 'register',
@@ -249,6 +289,14 @@ export class WebRtcClient {
   private async createOffer() {
     this.peerConnection = this.createPeerConnection();
     
+    // Add transceivers for receiving video and audio
+    try {
+      this.peerConnection.addTransceiver('video', { direction: 'recvonly' });
+      this.peerConnection.addTransceiver('audio', { direction: 'recvonly' });
+    } catch (e) {
+      console.warn('Transceiver setup fallback:', e);
+    }
+
     // Create DataChannel
     this.dataChannel = this.peerConnection.createDataChannel('mehdesk_data', { ordered: true });
     this.setupDataChannelEvents();

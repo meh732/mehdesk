@@ -590,6 +590,7 @@ export const RemoteViewer: React.FC<RemoteViewerProps> = ({
             ref={videoRef}
             autoPlay
             playsInline
+            muted
             className="w-full h-full object-contain max-h-full"
           />
         ) : (

@@ -123,62 +123,87 @@ export const IncomingConnectionDialog: React.FC<IncomingConnectionDialogProps> =
             </div>
           </div>
 
-          {/* Permissions Accordion */}
-          <div className="border border-slate-800 rounded-2xl overflow-hidden bg-slate-900/50">
-            <button
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className="w-full px-4 py-3 flex items-center justify-between text-xs text-slate-300 hover:bg-slate-800/60 transition-colors"
-            >
-              <span className="flex items-center gap-2 font-medium">
-                <Sliders className="w-3.5 h-3.5 text-amber-400" />
-                {isRtl ? 'سطوح دسترسی و اختیارات سیستم مقصد' : 'Access Permissions Control'}
+          {/* Permissions Controls - Directly Visible */}
+          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-200 flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-amber-400" />
+                {isRtl ? 'دسترسی‌های اعطایی به کاربر ریموت:' : 'Granted Remote Permissions:'}
               </span>
-              {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            </button>
+              <span className="text-[11px] text-slate-400">
+                {isRtl ? 'می‌توانید هر مورد را تغییر دهید' : 'Toggle as needed'}
+              </span>
+            </div>
 
-            {showAdvanced && (
-              <div className="p-4 border-t border-slate-800 grid grid-cols-2 gap-3 text-xs">
-                <label className="flex items-center gap-2 cursor-pointer text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={permissions.allowMouseKeyboard}
-                    onChange={() => togglePermission('allowMouseKeyboard')}
-                    className="rounded accent-red-600"
-                  />
-                  <span>{isRtl ? 'کنترل ماوس و کیبورد' : 'Mouse & Keyboard'}</span>
-                </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+              <label className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  checked={permissions.allowMouseKeyboard}
+                  onChange={() => togglePermission('allowMouseKeyboard')}
+                  className="w-4 h-4 rounded accent-red-600 cursor-pointer"
+                />
+                <div className="flex flex-col">
+                  <span className="text-xs font-semibold text-slate-100">
+                    {isRtl ? 'کنترل ماوس و کیبورد' : 'Mouse & Keyboard'}
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    {isRtl ? 'کلیک، تایپ و اسکرول' : 'Clicks, typing & scroll'}
+                  </span>
+                </div>
+              </label>
 
-                <label className="flex items-center gap-2 cursor-pointer text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={permissions.allowClipboard}
-                    onChange={() => togglePermission('allowClipboard')}
-                    className="rounded accent-red-600"
-                  />
-                  <span>{isRtl ? 'اشتراک کلیپ‌بورد' : 'Clipboard'}</span>
-                </label>
+              <label className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  checked={permissions.allowClipboard}
+                  onChange={() => togglePermission('allowClipboard')}
+                  className="w-4 h-4 rounded accent-red-600 cursor-pointer"
+                />
+                <div className="flex flex-col">
+                  <span className="text-xs font-semibold text-slate-100">
+                    {isRtl ? 'اشتراک کلیپ‌بورد' : 'Clipboard Sync'}
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    {isRtl ? 'کپی و پیست دوطرفه' : 'Copy & paste text'}
+                  </span>
+                </div>
+              </label>
 
-                <label className="flex items-center gap-2 cursor-pointer text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={permissions.allowFileTransfer}
-                    onChange={() => togglePermission('allowFileTransfer')}
-                    className="rounded accent-red-600"
-                  />
-                  <span>{isRtl ? 'انتقال فایل' : 'File Transfer'}</span>
-                </label>
+              <label className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  checked={permissions.allowFileTransfer}
+                  onChange={() => togglePermission('allowFileTransfer')}
+                  className="w-4 h-4 rounded accent-red-600 cursor-pointer"
+                />
+                <div className="flex flex-col">
+                  <span className="text-xs font-semibold text-slate-100">
+                    {isRtl ? 'انتقال فایل' : 'File Transfer'}
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    {isRtl ? 'ارسال و دریافت پوشه/فایل' : 'Upload & download files'}
+                  </span>
+                </div>
+              </label>
 
-                <label className="flex items-center gap-2 cursor-pointer text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={permissions.allowAudio}
-                    onChange={() => togglePermission('allowAudio')}
-                    className="rounded accent-red-600"
-                  />
-                  <span>{isRtl ? 'انتقال صدا (Audio)' : 'Sound Audio'}</span>
-                </label>
-              </div>
-            )}
+              <label className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  checked={permissions.allowAudio}
+                  onChange={() => togglePermission('allowAudio')}
+                  className="w-4 h-4 rounded accent-red-600 cursor-pointer"
+                />
+                <div className="flex flex-col">
+                  <span className="text-xs font-semibold text-slate-100">
+                    {isRtl ? 'انتقال صدا (Audio)' : 'Sound Streaming'}
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    {isRtl ? 'پخش صدای سیستم میزبان' : 'Stream host audio'}
+                  </span>
+                </div>
+              </label>
+            </div>
           </div>
 
           {/* Action Buttons */}
