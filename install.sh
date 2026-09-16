@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# meh desk - Enterprise Remote Desktop & Management Suite Installer
+# meh desk - Enterprise Remote Desktop & Fleet Management Suite
 # GitHub Repository: https://github.com/meh732/mehdesk.git
 # Supported OS: Ubuntu 20.04+, Debian 11+, CentOS/RHEL/Rocky/AlmaLinux 8+, Fedora
+# Language: English (Official CLI Standard)
 # ==============================================================================
 
 set -e
@@ -42,7 +43,7 @@ show_logo() {
 
 check_root() {
     if [ "$EUID" -ne 0 ]; then
-        echo -e "${RED}[ERROR] لطفاً این اسکریپت را با دسترسی روت اجرا کنید:${NC}"
+        echo -e "${RED}[ERROR] Please run this script with root privileges:${NC}"
         echo -e "${YELLOW}sudo bash $0${NC}"
         exit 1
     fi
@@ -54,13 +55,13 @@ detect_os() {
         OS=$ID
         VER=$VERSION_ID
     else
-        echo -e "${RED}[ERROR] سیستم‌عامل شما شناسایی نشد.${NC}"
+        echo -e "${RED}[ERROR] Operating system not recognized.${NC}"
         exit 1
     fi
 }
 
 install_dependencies() {
-    echo -e "\n${CYAN}${BOLD}[1/5] در حال بررسی و نصب پیش‌نیازهای سیستمی (Git, Curl, Node.js, Nginx)...${NC}"
+    echo -e "\n${CYAN}${BOLD}[1/4] Checking and installing system dependencies (Git, Curl, Node.js, Nginx)...${NC}"
     
     if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
         export DEBIAN_FRONTEND=noninteractive
@@ -69,7 +70,7 @@ install_dependencies() {
         
         # Check Node.js
         if ! command -v node >/dev/null 2>&1 || [ "$(node -v | cut -d'.' -f1 | tr -d 'v')" -lt 20 ]; then
-            echo -e "${YELLOW}در حال نصب آخرین نسخه پایدار Node.js 20 LTS...${NC}"
+            echo -e "${YELLOW}Installing Node.js 20 LTS...${NC}"
             curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
             apt-get install -y nodejs
         fi
@@ -77,26 +78,31 @@ install_dependencies() {
         dnf update -y
         dnf install -y curl wget git tar epel-release nginx firewalld socat cronie jq certbot python3-certbot-nginx gcc-c++ make
         if ! command -v node >/dev/null 2>&1 || [ "$(node -v | cut -d'.' -f1 | tr -d 'v')" -lt 20 ]; then
-            echo -e "${YELLOW}در حال نصب Node.js 20 LTS...${NC}"
+            echo -e "${YELLOW}Installing Node.js 20 LTS...${NC}"
             dnf module reset nodejs -y 2>/dev/null || true
             dnf module enable nodejs:20 -y 2>/dev/null || true
             dnf install -y nodejs
         fi
     fi
 
-    echo -e "${GREEN}[OK] پیش‌نیازهای پایه با موفقیت نصب شدند.${NC}"
+    echo -e "${GREEN}[OK] Core dependencies installed successfully.${NC}"
 }
 
 create_cli_tool() {
     cat << 'EOF' > "${CLI_COMMAND}"
 #!/usr/bin/env bash
+# ==============================================================================
 # meh desk CLI Controller
+# Language: English
+# ==============================================================================
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
+WHITE='\033[1;37m'
 BOLD='\033[1m'
 NC='\033[0m'
 
@@ -114,109 +120,110 @@ show_menu() {
     echo "  ██║ ╚═╝ ██║███████╗██║  ██║    ██████╔╝███████╗███████║██║  ██╗"
     echo "  ╚═╝     ╚═╝╚══════╝╚═╝  ╚═╝    ╚═════╝ ╚══════╝╚══════╝╚═╝  ╚═╝"
     echo -e "${NC}"
-    echo -e "${CYAN}${BOLD}                 مدیریت سرور meh desk v9.0${NC}"
+    echo -e "${CYAN}${BOLD}               meh desk Management Console v9.0${NC}"
     echo -e "${YELLOW}===================================================================${NC}"
     
     # Check Service Status
     if systemctl is-active --quiet ${SERVICE_NAME}; then
-        echo -e " وضعیت سرویس: ${GREEN}● فعال و در حال اجرا (Running)${NC}"
+        echo -e " Service Status: ${GREEN}● Active & Running${NC}"
     else
-        echo -e " وضعیت سرویس: ${RED}○ متوقف شده (Stopped)${NC}"
+        echo -e " Service Status: ${RED}○ Stopped / Not Active${NC}"
     fi
 
     if [ -f "${INSTALL_DIR}/.env" ]; then
         source "${INSTALL_DIR}/.env"
-        echo -e " پورت فعال: ${CYAN}${PORT:-3000}${NC} | دامنه: ${CYAN}${DOMAIN:-'IP مستقیم'}${NC}"
+        echo -e " Port: ${CYAN}${PORT:-3000}${NC} | Domain: ${CYAN}${DOMAIN:-'Direct IP'}${NC}"
     fi
     echo -e "${YELLOW}-------------------------------------------------------------------${NC}"
 
-    echo -e "  ${GREEN}1)${NC} شروع / راه‌اندازی مجدد سرویس (Restart)"
-    echo -e "  ${YELLOW}2)${NC} توقف سرویس (Stop)"
-    echo -e "  ${CYAN}3)${NC} مشاهده لاگ‌های زنده سرور و اتصالات ریموت (Live Logs)"
-    echo -e "  ${BLUE}4)${NC} آپدیت meh desk به آخرین نسخه گیت‌هاب بدون حذف دیتا (Update)"
-    echo -e "  ${PURPLE}5)${NC} تغییر پورت سرویس (Change Port)"
-    echo -e "  ${CYAN}6)${NC} تنظیم دامنه و فعال‌سازی رایگان SSL Let's Encrypt"
-    echo -e "  ${WHITE}7)${NC} ارسال فوری فایل بکاپ دیتابیس به تلگرام و بله (Backup)"
-    echo -e "  ${YELLOW}8)${NC} بازیابی و ریست پین ادمین مستر (Reset Admin PIN)"
-    echo -e "  ${RED}9)${NC} حذف کامل سرویس meh desk (Uninstall)"
-    echo -e "  ${BOLD}0)${NC} خروج از پنل\n"
-    read -p "لطفاً عدد گزینه مورد نظر را وارد نمایید [0-9]: " choice
+    echo -e "  ${GREEN}1)${NC} Start / Restart Service"
+    echo -e "  ${YELLOW}2)${NC} Stop Service"
+    echo -e "  ${CYAN}3)${NC} View Real-time Service & Remote Logs (Live)"
+    echo -e "  ${BLUE}4)${NC} Update meh desk to Latest Release (Zero Data Loss)"
+    echo -e "  ${PURPLE}5)${NC} Change Listening Port"
+    echo -e "  ${CYAN}6)${NC} Configure Domain & SSL Certificate (Let's Encrypt)"
+    echo -e "  ${WHITE}7)${NC} Trigger Instant Database Backup (Telegram & Bale)"
+    echo -e "  ${YELLOW}8)${NC} Reset Admin Master PIN"
+    echo -e "  ${RED}9)${NC} Uninstall meh desk Completely"
+    echo -e "  ${BOLD}0)${NC} Exit\n"
+    read -p "Please select an option [0-9]: " choice
 
     case "$choice" in
         1)
             systemctl restart ${SERVICE_NAME}
-            echo -e "${GREEN}سرویس meh desk با موفقیت ری‌استارت شد.${NC}"
+            echo -e "${GREEN}meh desk service restarted successfully.${NC}"
             sleep 2
             show_menu
             ;;
         2)
             systemctl stop ${SERVICE_NAME}
-            echo -e "${YELLOW}سرویس meh desk متوقف گردید.${NC}"
+            echo -e "${YELLOW}meh desk service has been stopped.${NC}"
             sleep 2
             show_menu
             ;;
         3)
-            echo -e "${CYAN}در حال نمایش لاگ‌ها (برای خروج Ctrl+C را بزنید)...${NC}"
+            echo -e "${CYAN}Streaming live logs (Press Ctrl+C to return to menu)...${NC}"
             journalctl -u ${SERVICE_NAME} -f -n 50
+            show_menu
             ;;
         4)
-            echo -e "${CYAN}در حال دریافت آخرین تغییرات از گیت‌هاب...${NC}"
+            echo -e "${CYAN}Pulling latest changes from GitHub repository...${NC}"
             cd "${INSTALL_DIR}"
             git fetch --all
             git reset --hard origin/main || git pull origin main
             npm install --production=false
             npm run build
             systemctl restart ${SERVICE_NAME}
-            echo -e "${GREEN}آپدیت با موفقیت اعمال شد.${NC}"
+            echo -e "${GREEN}Update completed successfully.${NC}"
             sleep 2
             show_menu
             ;;
         5)
-            read -p "پورت جدید مورد نظر را وارد کنید: " NEW_PORT
+            read -p "Enter new service port: " NEW_PORT
             if [[ "$NEW_PORT" =~ ^[0-9]+$ ]]; then
                 sed -i "s/PORT=.*/PORT=${NEW_PORT}/" "${INSTALL_DIR}/.env"
                 if command -v ufw >/dev/null 2>&1; then
                     ufw allow ${NEW_PORT}/tcp || true
                 fi
                 systemctl restart ${SERVICE_NAME}
-                echo -e "${GREEN}پورت با موفقیت به ${NEW_PORT} تغییر یافت.${NC}"
+                echo -e "${GREEN}Port changed to ${NEW_PORT} successfully.${NC}"
             else
-                echo -e "${RED}پورت نامعتبر است.${NC}"
+                echo -e "${RED}Invalid port number.${NC}"
             fi
             sleep 2
             show_menu
             ;;
         6)
-            read -p "دامنه متصل به این سرور را وارد فرمایید (مثال: remote.example.com): " USER_DOMAIN
+            read -p "Enter your server domain (e.g., remote.company.com): " USER_DOMAIN
             if [ -n "$USER_DOMAIN" ]; then
                 certbot --nginx -d "$USER_DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email || true
                 sed -i "s/DOMAIN=.*/DOMAIN=${USER_DOMAIN}/" "${INSTALL_DIR}/.env"
                 systemctl restart ${SERVICE_NAME}
-                echo -e "${GREEN}دامنه و گواهی SSL با موفقیت فعال شد: https://${USER_DOMAIN}${NC}"
+                echo -e "${GREEN}Domain and SSL certificate configured: https://${USER_DOMAIN}${NC}"
             fi
             sleep 3
             show_menu
             ;;
         7)
-            echo -e "${CYAN}در حال تهیه و ارسال پشتیبان...${NC}"
+            echo -e "${CYAN}Dispatching database backup...${NC}"
             curl -s -X POST "http://127.0.0.1:${PORT:-3000}/api/admin/dispatch-backup" || true
-            echo -e "${GREEN}پشتیبان به ربات‌های ادمین تلگرام و بله مخابره شد.${NC}"
+            echo -e "${GREEN}Backup dispatched to Telegram and Bale bots.${NC}"
             sleep 3
             show_menu
             ;;
         8)
-            read -p "پین جدید ادمین (PIN) را وارد فرمایید: " NEW_PIN
+            read -p "Enter new Admin Master PIN: " NEW_PIN
             if [ -n "$NEW_PIN" ]; then
                 curl -s -X POST "http://127.0.0.1:${PORT:-3000}/api/admin/settings" \
                      -H "Content-Type: application/json" \
                      -d "{\"adminPin\":\"${NEW_PIN}\"}" || true
-                echo -e "${GREEN}پین ادمین با موفقیت به ${NEW_PIN} تغییر یافت.${NC}"
+                echo -e "${GREEN}Admin PIN changed to ${NEW_PIN} successfully.${NC}"
             fi
             sleep 2
             show_menu
             ;;
         9)
-            read -p "آیا از حذف کامل meh desk اطمینان دارید؟ [y/N]: " confirm
+            read -p "Are you sure you want to completely remove meh desk? [y/N]: " confirm
             if [[ "$confirm" =~ ^[Yy]$ ]]; then
                 systemctl stop ${SERVICE_NAME} || true
                 systemctl disable ${SERVICE_NAME} || true
@@ -224,7 +231,7 @@ show_menu() {
                 systemctl daemon-reload
                 rm -rf "${INSTALL_DIR}"
                 rm -f "${CLI_COMMAND}"
-                echo -e "${GREEN}meh desk به صورت کامل از سرور شما پاک شد.${NC}"
+                echo -e "${GREEN}meh desk has been completely uninstalled from your server.${NC}"
                 exit 0
             fi
             show_menu
@@ -233,7 +240,7 @@ show_menu() {
             exit 0
             ;;
         *)
-            echo -e "${RED}گزینه نامعتبر است.${NC}"
+            echo -e "${RED}Invalid selection.${NC}"
             sleep 1
             show_menu
             ;;
@@ -246,12 +253,12 @@ EOF
 }
 
 install_mehdesk_core() {
-    echo -e "\n${CYAN}${BOLD}[2/5] دریافت سورس نرم‌افزار meh desk از گیت‌هاب...${NC}"
+    echo -e "\n${CYAN}${BOLD}[2/4] Cloning meh desk source repository...${NC}"
     
     mkdir -p "${BACKUP_DIR}"
 
     if [ -d "${INSTALL_DIR}/.git" ]; then
-        echo -e "${YELLOW}پوشه موجود شناسایی شد. در حال آپدیت سورس...${NC}"
+        echo -e "${YELLOW}Existing installation detected. Updating source...${NC}"
         cd "${INSTALL_DIR}"
         git fetch --all
         git reset --hard origin/main || git pull origin main
@@ -261,19 +268,19 @@ install_mehdesk_core() {
         cd "${INSTALL_DIR}"
     fi
 
-    echo -e "\n${CYAN}${BOLD}[3/5] نصب پکیج‌ها و بیلد باندل بهینه سرور و کلاینت...${NC}"
+    echo -e "\n${CYAN}${BOLD}[3/4] Installing dependencies and building production server...${NC}"
     npm install --production=false
     npm run build
 
-    echo -e "\n${CYAN}${BOLD}[4/5] پیکربندی تنظیمات محیطی و پورت...${NC}"
+    echo -e "\n${CYAN}${BOLD}[4/4] Configuring environment and Systemd daemon...${NC}"
     
     # Prompt for port if fresh install
     if [ ! -f "${ENV_FILE}" ]; then
-        echo -e "${WHITE}لطفاً پورت دسترسی پنل را مشخص کنید (پیش‌فرض: 3000):${NC}"
+        echo -e "${WHITE}Specify Web Panel Port (Default: 3000):${NC}"
         read -p "Port [3000]: " USER_PORT
         PORT=${USER_PORT:-3000}
 
-        echo -e "${WHITE}دامنه اختصاصی سرور (اختیاری - در صورت داشتن دامنه وارد کنید، در غیر این صورت خالی بگذارید):${NC}"
+        echo -e "${WHITE}Custom Domain (Optional - press Enter to skip):${NC}"
         read -p "Domain (Optional): " USER_DOMAIN
         DOMAIN=${USER_DOMAIN:-""}
 
@@ -292,8 +299,6 @@ EOF
     fi
 
     # Create Systemd Service
-    echo -e "\n${CYAN}${BOLD}[5/5] ساخت و فعال‌سازی سرویس دائمی سیستمی (${SERVICE_NAME}.service)...${NC}"
-    
     cat <<EOF > "/etc/systemd/system/${SERVICE_NAME}.service"
 [Unit]
 Description=meh desk Enterprise Remote Desktop Service
@@ -335,21 +340,127 @@ EOF
     SERVER_IP=$(curl -s4 icanhazip.com || curl -s4 ifconfig.me || hostname -I | awk '{print $1}')
 
     echo -e "\n${GREEN}${BOLD}===================================================================${NC}"
-    echo -e "${GREEN}${BOLD}🎉 نرم‌افزار meh desk با موفقیت روی سرور نصب و راه‌اندازی شد!${NC}"
+    echo -e "${GREEN}${BOLD}🎉 meh desk successfully installed and running!${NC}"
     echo -e "${GREEN}${BOLD}===================================================================${NC}"
-    echo -e " 🌐 آدرس وب پنل: ${CYAN}${BOLD}http://${SERVER_IP}:${PORT}${NC}"
+    echo -e " 🌐 Web Panel URL: ${CYAN}${BOLD}http://${SERVER_IP}:${PORT}${NC}"
     if [ -n "$DOMAIN" ]; then
-        echo -e " 🔒 دامنه اختصاصی: ${CYAN}${BOLD}https://${DOMAIN}${NC}"
+        echo -e " 🔒 Custom Domain: ${CYAN}${BOLD}https://${DOMAIN}${NC}"
     fi
-    echo -e " 🔑 پین پیش‌فرض ورود به پنل ادمین و ربات‌ها: ${YELLOW}${BOLD}123456${NC}"
-    echo -e " 💻 دستور مدیریت پنل در ترمینال: ${MAGENTA}${BOLD}mehdesk${NC}"
+    echo -e " 🔑 Default Admin Master PIN: ${YELLOW}${BOLD}123456${NC}"
+    echo -e " 💻 Terminal Management Command: ${CYAN}${BOLD}mehdesk${NC}"
     echo -e "${YELLOW}-------------------------------------------------------------------${NC}"
-    echo -e "${WHITE}از این پس با تایپ ${GREEN}mehdesk${WHITE} در هر نقطه از ترمینال، منوی مدیریت را باز کنید.${NC}\n"
+    echo -e "${WHITE}Type ${GREEN}mehdesk${WHITE} anywhere in your shell to open the management console.${NC}\n"
 }
 
-# Main Execution Flow
-show_logo
-check_root
-detect_os
-install_dependencies
-install_mehdesk_core
+# Main Interactive Menu Entrypoint
+main_interactive_menu() {
+    show_logo
+    check_root
+    detect_os
+
+    # If already installed, show status
+    if [ -d "${INSTALL_DIR}" ] && [ -f "${CLI_COMMAND}" ]; then
+        if systemctl is-active --quiet ${SERVICE_NAME}; then
+            echo -e " Current Status: ${GREEN}● Installed & Running${NC}"
+        else
+            echo -e " Current Status: ${YELLOW}○ Installed (Stopped)${NC}"
+        fi
+        echo -e "${YELLOW}-------------------------------------------------------------------${NC}"
+    fi
+
+    echo -e "Please choose an action:\n"
+    echo -e "  ${GREEN}1)${NC} Install / Reinstall meh desk"
+    echo -e "  ${BLUE}2)${NC} Update to Latest Release"
+    echo -e "  ${CYAN}3)${NC} Start / Restart Service"
+    echo -e "  ${YELLOW}4)${NC} Stop Service"
+    echo -e "  ${PURPLE}5)${NC} View Live Logs"
+    echo -e "  ${WHITE}6)${NC} Change Listening Port"
+    echo -e "  ${CYAN}7)${NC} Configure Domain & SSL Let's Encrypt"
+    echo -e "  ${YELLOW}8)${NC} Reset Admin PIN"
+    echo -e "  ${RED}9)${NC} Uninstall meh desk"
+    echo -e "  ${BOLD}0)${NC} Exit\n"
+    read -p "Select an option [0-9]: " action_choice
+
+    case "$action_choice" in
+        1)
+            install_dependencies
+            install_mehdesk_core
+            ;;
+        2)
+            if [ -d "${INSTALL_DIR}" ]; then
+                echo -e "${CYAN}Pulling latest updates...${NC}"
+                cd "${INSTALL_DIR}"
+                git fetch --all
+                git reset --hard origin/main || git pull origin main
+                npm install --production=false
+                npm run build
+                create_cli_tool
+                systemctl restart ${SERVICE_NAME}
+                echo -e "${GREEN}Update completed successfully.${NC}"
+            else
+                echo -e "${YELLOW}meh desk is not installed yet. Running installer...${NC}"
+                install_dependencies
+                install_mehdesk_core
+            fi
+            ;;
+        3)
+            systemctl restart ${SERVICE_NAME}
+            echo -e "${GREEN}Service restarted.${NC}"
+            ;;
+        4)
+            systemctl stop ${SERVICE_NAME}
+            echo -e "${YELLOW}Service stopped.${NC}"
+            ;;
+        5)
+            journalctl -u ${SERVICE_NAME} -f -n 50
+            ;;
+        6)
+            read -p "Enter new port: " NEW_PORT
+            if [[ "$NEW_PORT" =~ ^[0-9]+$ ]]; then
+                sed -i "s/PORT=.*/PORT=${NEW_PORT}/" "${INSTALL_DIR}/.env"
+                systemctl restart ${SERVICE_NAME}
+                echo -e "${GREEN}Port updated to ${NEW_PORT}.${NC}"
+            fi
+            ;;
+        7)
+            read -p "Enter domain: " USER_DOMAIN
+            if [ -n "$USER_DOMAIN" ]; then
+                certbot --nginx -d "$USER_DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email || true
+                sed -i "s/DOMAIN=.*/DOMAIN=${USER_DOMAIN}/" "${INSTALL_DIR}/.env"
+                systemctl restart ${SERVICE_NAME}
+                echo -e "${GREEN}SSL configured.${NC}"
+            fi
+            ;;
+        8)
+            read -p "Enter new Admin PIN: " NEW_PIN
+            if [ -n "$NEW_PIN" ]; then
+                curl -s -X POST "http://127.0.0.1:3000/api/admin/settings" \
+                     -H "Content-Type: application/json" \
+                     -d "{\"adminPin\":\"${NEW_PIN}\"}" || true
+                echo -e "${GREEN}PIN updated to ${NEW_PIN}.${NC}"
+            fi
+            ;;
+        9)
+            read -p "Are you sure you want to remove meh desk? [y/N]: " confirm
+            if [[ "$confirm" =~ ^[Yy]$ ]]; then
+                systemctl stop ${SERVICE_NAME} || true
+                systemctl disable ${SERVICE_NAME} || true
+                rm -f /etc/systemd/system/${SERVICE_NAME}.service
+                systemctl daemon-reload
+                rm -rf "${INSTALL_DIR}"
+                rm -f "${CLI_COMMAND}"
+                echo -e "${GREEN}meh desk uninstalled.${NC}"
+            fi
+            ;;
+        0)
+            exit 0
+            ;;
+        *)
+            echo -e "${RED}Invalid selection.${NC}"
+            exit 1
+            ;;
+    esac
+}
+
+# Run the interactive menu
+main_interactive_menu

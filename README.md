@@ -39,7 +39,7 @@ curl -sSL https://raw.githubusercontent.com/meh732/mehdesk/main/install.sh | sud
 
 ## 🖥️ ابزار مدیریت ترمینال (`mehdesk`)
 
-با تایپ دستور `mehdesk` در ترمینال سرور، منوی کنترل حرفه‌ای با قابلیت‌های زیر در اختیار شماست:
+با اجرای اسکریپت یا تایپ دستور `mehdesk` در ترمینال سرور، منوی کنترل به زبان استاندارد انگلیسی در اختیار شما قرار می‌گیرد:
 
 ```text
   ███╗   ███╗███████╗██╗  ██╗    ██████╗ ███████╗███████╗██╗  ██╗
@@ -48,21 +48,21 @@ curl -sSL https://raw.githubusercontent.com/meh732/mehdesk/main/install.sh | sud
   ██║╚██╔╝██║██╔══╝  ██╔══██║    ██║  ██║██╔══╝  ╚════██║██╔═██╗ 
   ██║ ╚═╝ ██║███████╗██║  ██║    ██████╔╝███████╗███████║██║  ██╗
   ╚═╝     ╚═╝╚══════╝╚═╝  ╚═╝    ╚═════╝ ╚══════╝╚══════╝╚═╝  ╚═╝
-                 مدیریت سرور meh desk v9.0
+               meh desk Management Console v9.0
 ===================================================================
- وضعیت سرویس: ● فعال و در حال اجرا (Running)
- پورت فعال: 3000 | دامنه: IP مستقیم
+ Service Status: ● Active & Running
+ Port: 3000 | Domain: Direct IP
 -------------------------------------------------------------------
-  1) شروع / راه‌اندازی مجدد سرویس (Restart)
-  2) توقف سرویس (Stop)
-  3) مشاهده لاگ‌های زنده سرور و اتصالات ریموت (Live Logs)
-  4) آپدیت meh desk به آخرین نسخه گیت‌هاب بدون حذف دیتا (Update)
-  5) تغییر پورت سرویس (Change Port)
-  6) تنظیم دامنه و فعال‌سازی رایگان SSL Let's Encrypt
-  7) ارسال فوری فایل بکاپ دیتابیس به تلگرام و بله (Backup)
-  8) بازیابی و ریست پین ادمین مستر (Reset Admin PIN)
-  9) حذف کامل سرویس meh desk (Uninstall)
-  0) خروج از پنل
+  1) Start / Restart Service
+  2) Stop Service
+  3) View Real-time Service & Remote Logs (Live)
+  4) Update meh desk to Latest Release (Zero Data Loss)
+  5) Change Listening Port
+  6) Configure Domain & SSL Certificate (Let's Encrypt)
+  7) Trigger Instant Database Backup (Telegram & Bale)
+  8) Reset Admin Master PIN
+  9) Uninstall meh desk Completely
+  0) Exit
 ```
 
 ---
