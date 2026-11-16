@@ -1,34 +1,34 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Tv, 
-  Share2, 
-  StopCircle, 
-  Users, 
-  ShieldCheck, 
-  Mic, 
-  MicOff, 
-  Eye, 
-  EyeOff, 
-  MessageSquare, 
-  Check, 
-  X, 
-  Copy, 
-  Sparkles,
+import {
+  Tv,
+  Share2,
+  StopCircle,
+  Users,
+  ShieldCheck,
+  Mic,
+  MicOff,
+  Eye,
+  EyeOff,
+  MessageSquare,
+  Check,
+  X,
+  Copy,
   Smartphone,
-  Layers,
-  Lock,
   Radio,
-  Settings,
-  Shield
+  Send,
+  Download,
+  MousePointer,
+  FolderSync
 } from 'lucide-react';
-import { SessionPermissions } from '../types';
+import { SessionPermissions, ChatMessage } from '../types';
 import { ScreenShareConsentModal } from './ScreenShareConsentModal';
+import { apiUrl, isTauriRuntime } from '../utils/serverConfig';
 
 interface HostBroadcasterProps {
   localId: string;
   alias: string;
   isHosting: boolean;
-  onStartHosting: () => void;
+  onStartHosting: (includeAudio?: boolean) => Promise<MediaStream | null> | void;
   onStopHosting: () => void;
   stream: MediaStream | null;
   permissions: SessionPermissions;
@@ -40,9 +40,21 @@ interface HostBroadcasterProps {
     fromId: string;
     requesterName: string;
     requesterDevice: string;
+    mode?: string;
   } | null;
   onAcceptIncomingRequest?: (permissions?: SessionPermissions) => void;
   onRejectIncomingRequest?: () => void;
+  connectedGuests: Array<{
+    id: string;
+    name: string;
+    device: string;
+    connectedAt: string;
+  }>;
+  onKickGuest?: (guestId: string) => void;
+  nativeAgentActive?: boolean;
+  chatMessages?: ChatMessage[];
+  onSendChatMessage?: (text: string) => void;
+  onOpenFileManager?: () => void;
 }
 
 export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
@@ -59,26 +71,41 @@ export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
   remoteCursor,
   incomingRequest,
   onAcceptIncomingRequest,
-  onRejectIncomingRequest
+  onRejectIncomingRequest,
+  connectedGuests,
+  onKickGuest,
+  nativeAgentActive = false,
+  chatMessages = [],
+  onSendChatMessage,
+  onOpenFileManager
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [micEnabled, setMicEnabled] = useState(false);
   const [privacyScreen, setPrivacyScreen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showConsentModal, setShowConsentModal] = useState(false);
+  const [chatInput, setChatInput] = useState('');
 
-  const [connectedGuests, setConnectedGuests] = useState<Array<{
-    id: string;
-    name: string;
-    device: string;
-    connectedAt: string;
-  }>>([]);
+  const inTauri = isTauriRuntime();
+  const osControlReady = inTauri || nativeAgentActive;
+  const cleanId = localId.replace(/\s+/g, '');
 
   useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
     }
   }, [stream]);
+
+  // Toggle audio tracks when mic/audio toggle clicked
+  const handleToggleAudioTrack = () => {
+    const next = !micEnabled;
+    setMicEnabled(next);
+    if (stream) {
+      stream.getAudioTracks().forEach((t) => {
+        t.enabled = next;
+      });
+    }
+  };
 
   const handleCopyId = () => {
     navigator.clipboard.writeText(localId);
@@ -90,30 +117,18 @@ export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
     setShowConsentModal(true);
   };
 
-  const handleConsentApproved = (updatedPermissions: SessionPermissions, includeAudio: boolean) => {
-    setPermissions(updatedPermissions);
-    setMicEnabled(includeAudio);
+  const handleConsentApproved = (options: { includeAudio: boolean; permissions: SessionPermissions }) => {
+    setPermissions(options.permissions);
+    setMicEnabled(options.includeAudio);
     setShowConsentModal(false);
-    onStartHosting();
+    onStartHosting(options.includeAudio);
   };
 
-  const handleAcceptRequest = () => {
-    if (incomingRequest) {
-      setConnectedGuests(prev => [
-        ...prev,
-        {
-          id: incomingRequest.fromId,
-          name: incomingRequest.requesterName,
-          device: incomingRequest.requesterDevice,
-          connectedAt: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })
-        }
-      ]);
-      onAcceptIncomingRequest?.(permissions);
-    }
-  };
-
-  const handleRejectRequest = () => {
-    onRejectIncomingRequest?.();
+  const handleSendChat = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim() || !onSendChatMessage) return;
+    onSendChatMessage(chatInput.trim());
+    setChatInput('');
   };
 
   return (
@@ -134,26 +149,32 @@ export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative z-10">
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <span className={`w-3 h-3 rounded-full ${isHosting ? 'bg-emerald-500 animate-ping' : 'bg-amber-500'}`}></span>
+              <span className={`w-3 h-3 rounded-full ${isHosting && stream ? 'bg-emerald-500 animate-ping' : 'bg-amber-500'}`}></span>
               <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                {isHosting ? (isRtl ? 'سرور اشتراک صفحه فعال است' : 'Hosting Active') : (isRtl ? 'آماده میزبانی و اشتراک تصویر' : 'Ready to Host')}
+                {isHosting && stream
+                  ? isRtl
+                    ? 'استریم زنده صفحه فعال است'
+                    : 'Live Screen Stream Active'
+                  : isRtl
+                  ? 'آماده میزبانی و اشتراک تصویر'
+                  : 'Ready to Host'}
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-black text-white">
               {isRtl ? 'میزبانی صفحه این کامپیوتر در meh desk' : 'Host This Machine Screen on meh desk'}
             </h1>
             <p className="text-xs sm:text-sm text-slate-400 max-w-xl">
-              {isRtl 
-                ? 'قبل از ارسال تصویر، سطح دسترسی‌های مجاز (ماوس، کیبورد، صدا و انتقال فایل) از شما پرسیده می‌شود و پس از تایید، تصویر به صورت امن و WebRTC P2P استریم می‌گردد.'
-                : 'Share your display securely via WebRTC with granular permission consent. Remote phones and workstations can connect instantly.'}
+              {isRtl
+                ? 'با شروع اشتراک‌گذاری صفحه، تصویر دسکتاپ یا پنجره انتخابی به صورت مستقیم WebRTC P2P به سیستم متصل‌شده ارسال می‌شود.'
+                : 'Share your display securely via WebRTC with granular permission consent.'}
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            {!isHosting ? (
+            {!isHosting || !stream ? (
               <button
                 onClick={handleTriggerStartHosting}
-                className="bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white px-6 py-3 rounded-xl font-bold text-sm flex items-center gap-2.5 shadow-lg shadow-red-600/40 hover:scale-102 active:scale-98 transition-all"
+                className="bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white px-6 py-3 rounded-xl font-bold text-sm flex items-center gap-2.5 shadow-lg shadow-red-600/40 transition-all"
               >
                 <Share2 className="w-5 h-5" />
                 <span>{isRtl ? 'شروع اشتراک‌گذاری صفحه' : 'Start Sharing Screen'}</span>
@@ -164,7 +185,7 @@ export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
                 className="bg-slate-800 hover:bg-slate-700 text-rose-400 hover:text-rose-300 border border-rose-500/40 px-6 py-3 rounded-xl font-bold text-sm flex items-center gap-2.5 shadow-lg transition-all"
               >
                 <StopCircle className="w-5 h-5" />
-                <span>{isRtl ? 'توقف میزبانی' : 'Stop Hosting'}</span>
+                <span>{isRtl ? 'توقف اشتراک صفحه' : 'Stop Hosting'}</span>
               </button>
             )}
 
@@ -179,9 +200,73 @@ export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
         </div>
       </div>
 
-      {/* Incoming Request Notification Modal/Bar */}
+      {/* Native OS Mouse & Keyboard Control Status Banner */}
+      <div
+        className={`rounded-2xl p-4 border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
+          osControlReady
+            ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-200'
+            : 'bg-amber-950/30 border-amber-500/40 text-amber-200'
+        }`}
+      >
+        <div className="flex items-start gap-3">
+          <div
+            className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+              osControlReady ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'
+            }`}
+          >
+            <MousePointer className="w-4 h-4" />
+          </div>
+          <div className="text-xs space-y-1">
+            <div className="font-bold">
+              {inTauri
+                ? isRtl
+                  ? 'کنترل بومی ماوس و کیبورد ویندوز (داخلی اپلیکیشن تائوری) فعال است'
+                  : 'Built-in Native OS Mouse & Keyboard Control Active (Tauri)'
+                : nativeAgentActive
+                ? isRtl
+                  ? 'ایجنت کنترل ماوس و کیبورد ویندوز/لینوکس به این شناسه متصل و فعال است'
+                  : 'External Native OS Input Agent Connected'
+                : isRtl
+                ? 'در حالت مرورگر وب: برای اینکه کاربر مقابل بتواند ماوس و کیبورد سیستم شما را تکان دهد، ایجنت بومی را اجرا کنید (یا از برنامه Tauri .exe استفاده نمایید)'
+                : 'Browser Mode: Run the Native Input Agent (or use Tauri .exe) so the remote peer can move your OS mouse & keyboard'}
+            </div>
+            <div className="text-[11px] opacity-80">
+              {osControlReady
+                ? isRtl
+                  ? 'کلیه حرکات ماوس، کلیک‌ها، اسکرول و کلیدهای کیبورد از طرف کامپیوتر مقابل مستقیماً روی سیستم‌عامل شما اعمال می‌شوند.'
+                  : 'All remote mouse moves, clicks, wheel & keystrokes execute directly on your OS.'
+                : isRtl
+                ? 'بدون ایجنت یا نسخه Tauri، مرورگر به دلایل امنیتی فقط نشانگر ریموت را روی پیش‌نمایش نمایش می‌دهد.'
+                : 'Without the desktop app or agent, browser sandbox only displays remote cursor overlay.'}
+            </div>
+          </div>
+        </div>
+
+        {!inTauri && !nativeAgentActive && (
+          <div className="flex items-center gap-2 shrink-0">
+            <a
+              href={apiUrl(`/api/agent/mehdesk-agent.bat?id=${cleanId}`)}
+              download={`mehdesk-input-agent-${cleanId}.bat`}
+              className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold flex items-center gap-1.5 shadow"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>{isRtl ? 'ایجنت ویندوز (.bat)' : 'Windows Agent (.bat)'}</span>
+            </a>
+            <a
+              href={apiUrl(`/api/agent/linux.sh?id=${cleanId}`)}
+              download={`mehdesk-agent-${cleanId}.sh`}
+              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1.5"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>{isRtl ? 'لینوکس (.sh)' : 'Linux (.sh)'}</span>
+            </a>
+          </div>
+        )}
+      </div>
+
+      {/* Incoming Request Bar */}
       {incomingRequest && (
-        <div className="bg-gradient-to-r from-amber-950/80 via-slate-900 to-amber-950/80 border-2 border-amber-500 rounded-2xl p-4 sm:p-5 shadow-2xl animate-bounce">
+        <div className="bg-gradient-to-r from-amber-950/80 via-slate-900 to-amber-950/80 border-2 border-amber-500 rounded-2xl p-4 sm:p-5 shadow-2xl">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/40 animate-pulse">
@@ -200,15 +285,15 @@ export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
 
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <button
-                onClick={handleRejectRequest}
-                className="flex-1 sm:flex-none px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-rose-400 border border-rose-900/50 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                onClick={() => onRejectIncomingRequest?.()}
+                className="flex-1 sm:flex-none px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-rose-400 border border-rose-900/50 text-xs font-semibold flex items-center justify-center gap-1.5"
               >
                 <X className="w-4 h-4" />
                 <span>{isRtl ? 'رد اتصال' : 'Reject'}</span>
               </button>
               <button
-                onClick={handleAcceptRequest}
-                className="flex-1 sm:flex-none px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-1.5 transition-all"
+                onClick={() => onAcceptIncomingRequest?.(permissions)}
+                className="flex-1 sm:flex-none px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg flex items-center justify-center gap-1.5"
               >
                 <Check className="w-4 h-4" />
                 <span>{isRtl ? 'تایید و برقراری ارتباط' : 'Accept Session'}</span>
@@ -218,21 +303,19 @@ export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
         </div>
       )}
 
-      {/* Main Grid: Stream Preview & Host Control Matrix */}
+      {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left 2 Cols: Live Video Feed / Screen Preview */}
+        {/* Left 2 Cols: Live Video Feed */}
         <div className="lg:col-span-2 space-y-4">
           <div className="bg-[#161922] border border-slate-800 rounded-2xl overflow-hidden shadow-xl flex flex-col">
             <div className="bg-[#1a1d27] px-4 py-3 border-b border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs font-semibold text-slate-300">
                 <Tv className="w-4 h-4 text-red-400" />
-                <span>{isRtl ? 'پیش‌نمایش تصویر زنده استریم' : 'Live Stream Video Monitor'}</span>
+                <span>{isRtl ? 'پیش‌نمایش تصویر زنده ارسالی' : 'Live Outgoing Stream'}</span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/50 px-2 py-0.5 rounded border border-emerald-800/40">
-                  {isHosting ? 'WebRTC P2P 60 FPS' : 'Idle'}
-                </span>
-              </div>
+              <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/50 px-2 py-0.5 rounded border border-emerald-800/40">
+                {stream ? 'WebRTC Active' : 'Idle'}
+              </span>
             </div>
 
             <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden">
@@ -253,13 +336,13 @@ export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
                     {isRtl ? 'هنوز اشتراک صفحه آغاز نشده است' : 'Screen broadcast is not started'}
                   </div>
                   <p className="text-xs text-slate-500 max-w-sm">
-                    {isRtl 
-                      ? 'روی دکمه "شروع اشتراک‌گذاری صفحه" کلیک کنید تا تمام صفحه یا یک نرم‌افزار خاص را به اشتراک بگذارید.'
-                      : 'Click Start Sharing Screen to broadcast your entire desktop or a single window.'}
+                    {isRtl
+                      ? 'روی دکمه "شروع اشتراک‌گذاری صفحه" کلیک کنید تا تمام صفحه یا یک پنجره را به اشتراک بگذارید.'
+                      : 'Click Start Sharing Screen to broadcast your desktop or a window.'}
                   </p>
                   <button
-                    onClick={onStartHosting}
-                    className="bg-red-600 hover:bg-red-500 text-white text-xs font-semibold px-4 py-2 rounded-xl transition-all shadow-md shadow-red-600/30"
+                    onClick={handleTriggerStartHosting}
+                    className="bg-red-600 hover:bg-red-500 text-white text-xs font-semibold px-4 py-2 rounded-xl transition-all shadow-md"
                   >
                     {isRtl ? 'اشتراک صفحه با WebRTC' : 'Start WebRTC Broadcast'}
                   </button>
@@ -269,13 +352,13 @@ export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
               {privacyScreen && (
                 <div className="absolute inset-0 bg-black/95 flex flex-col items-center justify-center text-slate-400 text-xs">
                   <EyeOff className="w-8 h-8 text-slate-600 mb-2" />
-                  <span>{isRtl ? 'پرده حریم خصوصی فعال است (نمایشگر محلی خاموش است)' : 'Privacy screen active (display blanked)'}</span>
+                  <span>{isRtl ? 'پرده حریم خصوصی فعال است' : 'Privacy screen active'}</span>
                 </div>
               )}
 
               {/* Real-time Remote Guest Cursor Overlay */}
               {remoteCursor && permissions.allowMouseKeyboard && (
-                <div 
+                <div
                   className="absolute pointer-events-none z-30 transition-all duration-75"
                   style={{
                     left: `${Math.max(0, Math.min(100, remoteCursor.x * 100))}%`,
@@ -304,36 +387,44 @@ export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
             <div className="p-3 bg-[#1a1d27] border-t border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setMicEnabled(!micEnabled)}
+                  onClick={handleToggleAudioTrack}
                   className={`p-2 rounded-xl border flex items-center gap-1.5 transition-colors ${
-                    micEnabled 
-                      ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/40' 
+                    micEnabled
+                      ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/40'
                       : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
                   }`}
-                  title={isRtl ? 'انتقال صدای میکروفون به مهمان' : 'Microphone audio broadcast'}
                 >
                   {micEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
-                  <span>{micEnabled ? (isRtl ? 'میکروفون فعال' : 'Mic ON') : (isRtl ? 'میکروفون خاموش' : 'Mic OFF')}</span>
+                  <span>{micEnabled ? (isRtl ? 'صدا فعال' : 'Audio ON') : (isRtl ? 'صدا خاموش' : 'Audio OFF')}</span>
                 </button>
 
                 <button
                   onClick={() => setPrivacyScreen(!privacyScreen)}
                   className={`p-2 rounded-xl border flex items-center gap-1.5 transition-colors ${
-                    privacyScreen 
-                      ? 'bg-purple-600/20 text-purple-300 border-purple-500/40' 
+                    privacyScreen
+                      ? 'bg-purple-600/20 text-purple-300 border-purple-500/40'
                       : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
                   }`}
-                  title={isRtl ? 'سیاه کردن مانیتور فیزیکی برای حفظ حریم خصوصی' : 'Privacy Blank Screen'}
                 >
                   {privacyScreen ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   <span>{isRtl ? 'پرده سیاه خصوصی' : 'Privacy Screen'}</span>
                 </button>
               </div>
+
+              {onOpenFileManager && connectedGuests.length > 0 && (
+                <button
+                  onClick={onOpenFileManager}
+                  className="px-3 py-2 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-blue-300 flex items-center gap-1.5"
+                >
+                  <FolderSync className="w-4 h-4" />
+                  <span>{isRtl ? 'ارسال/دریافت فایل با مهمان' : 'Share Files with Guest'}</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Right Col: Host Connection Credentials & Active Guests */}
+        {/* Right Col: Credentials, Connected Guests & Live Chat */}
         <div className="space-y-4">
           {/* Host ID Card */}
           <div className="bg-[#161922] border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
@@ -344,7 +435,7 @@ export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
 
             <div>
               <label className="text-[11px] text-slate-400 block mb-1">
-                {isRtl ? 'شناسه AnyDesk اختصاصی ۹ رقمی:' : 'Your 9-Digit AnyDesk ID:'}
+                {isRtl ? 'شناسه اختصاصی ۹ رقمی:' : 'Your 9-Digit ID:'}
               </label>
               <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl p-2.5">
                 <span className="font-mono text-lg font-black text-red-400 flex-1 tracking-wider text-center">
@@ -353,20 +444,14 @@ export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
                 <button
                   onClick={handleCopyId}
                   className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
-                  title="کپی شناسه"
                 >
                   {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
                 </button>
               </div>
             </div>
 
-            <div>
-              <label className="text-[11px] text-slate-400 block mb-1">
-                {isRtl ? 'نام مستعار درون شبکه (Alias):' : 'Network Alias:'}
-              </label>
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-2.5 font-mono text-xs text-slate-200">
-                {alias}
-              </div>
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-2.5 font-mono text-xs text-slate-200">
+              {alias}
             </div>
           </div>
 
@@ -375,7 +460,7 @@ export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <Users className="w-4 h-4 text-emerald-400" />
-                <span>{isRtl ? 'دستگاه‌های متصل به این سیستم' : 'Active Connected Guests'}</span>
+                <span>{isRtl ? 'دستگاه‌های متصل' : 'Connected Guests'}</span>
               </h3>
               <span className="text-xs bg-slate-800 px-2 py-0.5 rounded text-slate-300 font-mono">
                 {connectedGuests.length}
@@ -383,14 +468,14 @@ export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
             </div>
 
             {connectedGuests.length === 0 ? (
-              <div className="text-center py-6 text-xs text-slate-500 bg-slate-900/50 rounded-xl border border-slate-800/80">
+              <div className="text-center py-4 text-xs text-slate-500 bg-slate-900/50 rounded-xl border border-slate-800/80">
                 {isRtl ? 'هیچ کاربری در حال حاضر متصل نیست.' : 'No active remote sessions.'}
               </div>
             ) : (
               <div className="space-y-2">
-                {connectedGuests.map((guest, idx) => (
-                  <div 
-                    key={idx}
+                {connectedGuests.map((guest) => (
+                  <div
+                    key={guest.id}
                     className="bg-slate-900 border border-slate-800 p-3 rounded-xl flex items-center justify-between text-xs"
                   >
                     <div>
@@ -400,9 +485,9 @@ export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
                       </div>
                     </div>
                     <button
-                      onClick={() => setConnectedGuests(prev => prev.filter((_, i) => i !== idx))}
+                      onClick={() => onKickGuest?.(guest.id)}
                       className="text-rose-400 hover:text-rose-300 p-1.5 rounded-lg hover:bg-rose-950/40 transition-colors"
-                      title={isRtl ? 'قطع اتصال این کاربر' : 'Kick User'}
+                      title={isRtl ? 'قطع اتصال این کاربر' : 'Disconnect Guest'}
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -410,6 +495,57 @@ export const HostBroadcaster: React.FC<HostBroadcasterProps> = ({
                 ))}
               </div>
             )}
+          </div>
+
+          {/* Live Peer Chat Box */}
+          <div className="bg-[#161922] border border-slate-800 rounded-2xl p-4 shadow-xl flex flex-col space-y-3">
+            <h3 className="text-xs font-bold text-white flex items-center gap-2">
+              <MessageSquare className="w-4 h-4 text-blue-400" />
+              <span>{isRtl ? 'گفتگوی مستقیم با کاربر متصل' : 'Live Peer Chat'}</span>
+            </h3>
+
+            <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-2.5 h-36 overflow-y-auto space-y-2 text-xs">
+              {chatMessages.length === 0 ? (
+                <div className="text-slate-500 text-center py-10 text-[11px]">
+                  {isRtl ? 'پیامی ارسال نشده است.' : 'No messages yet.'}
+                </div>
+              ) : (
+                chatMessages.map((m) => (
+                  <div
+                    key={m.id}
+                    className={`p-2 rounded-lg max-w-[85%] ${
+                      m.sender === 'local'
+                        ? 'bg-red-600/20 border border-red-500/30 text-slate-100 mr-auto'
+                        : 'bg-slate-800 text-slate-200 ml-auto'
+                    }`}
+                  >
+                    <div className="text-[10px] text-slate-400 mb-0.5 flex justify-between gap-2">
+                      <span>{m.senderName}</span>
+                      <span>{m.time}</span>
+                    </div>
+                    <div className="break-words">{m.text}</div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <form onSubmit={handleSendChat} className="flex items-center gap-2">
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                disabled={connectedGuests.length === 0}
+                placeholder={connectedGuests.length > 0 ? (isRtl ? 'پیام به کاربر مقابل...' : 'Message peer...') : (isRtl ? 'ابتدا یک کاربر متصل شود' : 'No peer connected')}
+                className="flex-1 bg-slate-900 border border-slate-700 disabled:opacity-50 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-red-500"
+              />
+              <button
+                type="submit"
+                disabled={connectedGuests.length === 0 || !chatInput.trim()}
+                className="p-2 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white"
+              >
+                <Send className="w-3.5 h-3.5" />
+              </button>
+            </form>
           </div>
         </div>
       </div>

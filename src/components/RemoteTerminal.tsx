@@ -1,47 +1,51 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-  Terminal as TerminalIcon, 
-  Play, 
-  Trash2, 
-  Copy, 
-  Check, 
-  Sparkles, 
-  Shield, 
-  Server, 
-  RotateCcw,
+import {
+  Terminal as TerminalIcon,
+  Play,
+  Trash2,
+  Copy,
+  Check,
+  Sparkles,
   Zap,
-  Activity,
-  X
+  X,
+  AlertCircle
 } from 'lucide-react';
+
+export interface TerminalLogEntry {
+  id?: string;
+  type: 'input' | 'output' | 'error' | 'system';
+  text: string;
+  timestamp: string;
+}
 
 interface RemoteTerminalProps {
   remoteName?: string;
   remoteId?: string;
   isRtl: boolean;
+  connectionStatus: string;
+  connectionError?: string | null;
+  history: TerminalLogEntry[];
+  onClearHistory: () => void;
+  onExecuteCommand: (command: string) => void;
+  isExecuting?: boolean;
   onClose?: () => void;
   onOpenAiHelp?: () => void;
 }
 
 export const RemoteTerminal: React.FC<RemoteTerminalProps> = ({
-  remoteName = 'Accounting-PC',
-  remoteId = '489 312 905',
+  remoteName = 'Remote Host',
+  remoteId = '',
   isRtl,
+  connectionStatus,
+  connectionError,
+  history,
+  onClearHistory,
+  onExecuteCommand,
+  isExecuting = false,
   onClose,
   onOpenAiHelp
 }) => {
   const [inputCommand, setInputCommand] = useState('');
-  const [history, setHistory] = useState<Array<{
-    type: 'input' | 'output' | 'error' | 'system';
-    text: string;
-    timestamp: string;
-  }>>([
-    {
-      type: 'system',
-      text: `Connected to remote terminal: ${remoteName} (ID: ${remoteId})\nmeh desk Secure Shell Initialized (AES-256-GCM / TLS 1.3).\nType commands below to execute on target machine.`,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    }
-  ]);
-
   const [copied, setCopied] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -49,103 +53,94 @@ export const RemoteTerminal: React.FC<RemoteTerminalProps> = ({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [history]);
 
-  const executeCommand = (cmdText?: string) => {
-    const cmd = cmdText || inputCommand;
-    if (!cmd.trim()) return;
+  const isPeerReady = connectionStatus === 'connected' || connectionStatus === 'accepted';
 
-    const time = new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
-
-    setHistory(prev => [...prev, { type: 'input', text: cmd, timestamp: time }]);
-    setInputCommand('');
-
-    const cleanCmd = cmd.trim().toLowerCase();
-
-    // Simulated realistic Windows/Linux command outputs
-    setTimeout(() => {
-      let outputText = '';
-
-      if (cleanCmd.startsWith('ping')) {
-        outputText = `Pinging remote host [8.8.8.8] with 32 bytes of data:\nReply from 8.8.8.8: bytes=32 time=14ms TTL=117\nReply from 8.8.8.8: bytes=32 time=15ms TTL=117\nReply from 8.8.8.8: bytes=32 time=13ms TTL=117\n\nPing statistics for 8.8.8.8:\n    Packets: Sent = 3, Received = 3, Lost = 0 (0% loss),\nApproximate round trip times in milli-seconds:\n    Minimum = 13ms, Maximum = 15ms, Average = 14ms`;
-      } else if (cleanCmd === 'ipconfig' || cleanCmd === 'ipconfig /all') {
-        outputText = `Windows IP Configuration\n\nEthernet adapter Office-LAN:\n   Connection-specific DNS Suffix  . : corp.internal\n   IPv4 Address. . . . . . . . . . . : 192.168.1.104\n   Subnet Mask . . . . . . . . . . . : 255.255.255.0\n   Default Gateway . . . . . . . . . : 192.168.1.1\n   DHCP Server . . . . . . . . . . . : 192.168.1.1\n   DNS Servers . . . . . . . . . . . : 1.1.1.1\n                                       8.8.8.8`;
-      } else if (cleanCmd === 'tasklist' || cleanCmd.includes('tasklist')) {
-        outputText = `Image Name                     PID Session Name        Session#    Mem Usage\n========================= ======== ================ =========== ============\nSystem Idle Process              0 Services                   0          8 K\nSystem                           4 Services                   0      1,420 K\nexplorer.exe                  4120 Console                    1    142,320 K\nAnyDesk.exe                   8920 Console                    1     64,120 K\nSepidarFinancial.exe          9440 Console                    1    380,450 K\nEXCEL.EXE                    10240 Console                    1    210,180 K\nchrome.exe                   12480 Console                    1    520,300 K`;
-      } else if (cleanCmd === 'netstat' || cleanCmd.includes('netstat')) {
-        outputText = `Active Connections\n\n  Proto  Local Address          Foreign Address        State\n  TCP    192.168.1.104:7070     0.0.0.0:0              LISTENING (AnyDesk)\n  TCP    192.168.1.104:5432     0.0.0.0:0              LISTENING (PostgreSQL)\n  TCP    192.168.1.104:443      142.250.180.206:443    ESTABLISHED`;
-      } else if (cleanCmd === 'sfc /scannow') {
-        outputText = `Beginning system scan. This process will take some time.\nBeginning verification phase of system scan.\nVerification 100% complete.\nWindows Resource Protection did not find any integrity violations.`;
-      } else if (cleanCmd.includes('restart') || cleanCmd.includes('reboot') || cleanCmd.includes('shutdown')) {
-        outputText = `Initiating remote system reboot schedule in 30 seconds...\nBroadcast sent to all active users.`;
-      } else if (cleanCmd === 'cls' || cleanCmd === 'clear') {
-        setHistory([]);
-        return;
-      } else {
-        outputText = `Command executed successfully on remote machine.\nReturn code: 0 (STATUS_SUCCESS)\nTarget: ${remoteName}`;
-      }
-
-      setHistory(prev => [...prev, { type: 'output', text: outputText, timestamp: time }]);
-    }, 350);
+  const handleRun = (cmdText?: string) => {
+    const cmd = (cmdText ?? inputCommand).trim();
+    if (!cmd) return;
+    if (cmd.toLowerCase() === 'cls' || cmd.toLowerCase() === 'clear') {
+      onClearHistory();
+      setInputCommand('');
+      return;
+    }
+    onExecuteCommand(cmd);
+    if (!cmdText) setInputCommand('');
   };
 
   const handleCopyLogs = () => {
-    const fullLog = history.map(h => `[${h.timestamp}] ${h.type === 'input' ? '> ' : ''}${h.text}`).join('\n\n');
+    const fullLog = history
+      .map((h) => `[${h.timestamp}] ${h.type === 'input' ? '> ' : ''}${h.text}`)
+      .join('\n\n');
     navigator.clipboard.writeText(fullLog);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const quickCommands = [
-    { name: 'ipconfig /all', desc: 'مشاهده IP و کارت شبکه' },
-    { name: 'tasklist', desc: 'لیست برنامه‌های در حال اجرا' },
-    { name: 'ping 8.8.8.8', desc: 'تست اتصال به اینترنت' },
-    { name: 'netstat -ano', desc: 'پورت‌های باز سیستم' },
-    { name: 'sfc /scannow', desc: 'اسکن سلامت فایل‌های ویندوز' },
-    { name: 'ipconfig /flushdns', desc: 'پاکسازی کش DNS' }
+    { name: 'hostname', desc: isRtl ? 'نام سیستم مقصد' : 'Host name' },
+    { name: 'whoami', desc: isRtl ? 'کاربر فعال سیستم' : 'Current user' },
+    { name: 'ipconfig', desc: isRtl ? 'آدرس شبکه (Windows)' : 'Network IP (Windows)' },
+    { name: 'uname -a', desc: isRtl ? 'اطلاعات هسته (Linux/Mac)' : 'Kernel info (Linux/Mac)' },
+    { name: 'dir', desc: isRtl ? 'لیست فایل‌های پوشه جاری' : 'Directory listing' },
+    { name: 'Get-Process | Select-Object -First 10', desc: isRtl ? '۱۰ پردازش اول (PowerShell)' : 'Top processes' }
   ];
 
   return (
-    <div className="bg-[#0e1017] text-slate-100 rounded-2xl border border-slate-800 shadow-2xl flex flex-col h-[calc(100vh-100px)] max-w-6xl mx-auto overflow-hidden">
+    <div className="bg-[#0e1017] text-slate-100 rounded-2xl border border-slate-800 shadow-2xl flex flex-col h-[calc(100vh-110px)] max-w-6xl mx-auto overflow-hidden">
       {/* Terminal Title Bar */}
-      <div className="bg-[#161922] px-4 py-3 border-b border-slate-800 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
+      <div className="bg-[#161922] px-4 py-3 border-b border-slate-800 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30 shrink-0">
             <TerminalIcon className="w-4 h-4" />
           </div>
-          <div>
-            <h2 className="text-sm font-bold text-white flex items-center gap-2">
-              <span>{isRtl ? 'ترمینال و پاورشل ریموت' : 'Remote PowerShell & Terminal'}</span>
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-white flex items-center gap-2 truncate">
+              <span>{isRtl ? 'ترمینال واقعی ریموت' : 'Real Remote Shell & PowerShell'}</span>
               <span className="text-slate-500">•</span>
-              <span className="text-amber-400 font-mono text-xs">{remoteName} ({remoteId})</span>
+              <span className="text-amber-400 font-mono text-xs truncate">
+                {remoteName} ({remoteId})
+              </span>
             </h2>
-            <div className="text-[11px] text-slate-400 font-mono">
-              Administrator Privileges • Elevation Enabled
+            <div className="text-[11px] flex items-center gap-1.5 font-mono">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  isPeerReady ? 'bg-emerald-500' : connectionStatus === 'error' || connectionStatus === 'rejected' ? 'bg-rose-500' : 'bg-amber-400 animate-ping'
+                }`}
+              />
+              <span className={isPeerReady ? 'text-emerald-400' : 'text-slate-400'}>
+                {isPeerReady
+                  ? isRtl
+                    ? 'متصل — دستورات مستقیماً روی سیستم مقصد اجرا می‌شوند'
+                    : 'Connected — Commands execute directly on target host'
+                  : connectionError || (isRtl ? 'در انتظار تایید اتصال...' : 'Waiting for host connection...')}
+              </span>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {onOpenAiHelp && (
             <button
               onClick={onOpenAiHelp}
               className="px-3 py-1.5 rounded-lg bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/40 text-xs font-medium flex items-center gap-1.5 transition-colors"
             >
               <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-              <span>{isRtl ? 'اسکریپت با هوش مصنوعی' : 'AI Script Generator'}</span>
+              <span className="hidden sm:inline">{isRtl ? 'اسکریپت با هوش مصنوعی' : 'AI Script'}</span>
             </button>
           )}
 
           <button
             onClick={handleCopyLogs}
             className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
-            title="کپی لاگ‌ها"
+            title={isRtl ? 'کپی لاگ‌ها' : 'Copy logs'}
           >
             {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
           </button>
 
           <button
-            onClick={() => setHistory([])}
+            onClick={onClearHistory}
             className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
-            title="پاکسازی صفحه"
+            title={isRtl ? 'پاکسازی صفحه' : 'Clear'}
           >
             <Trash2 className="w-4 h-4" />
           </button>
@@ -165,33 +160,55 @@ export const RemoteTerminal: React.FC<RemoteTerminalProps> = ({
       <div className="bg-[#12141d] px-4 py-2 border-b border-slate-800 flex items-center gap-2 overflow-x-auto text-xs">
         <span className="text-[11px] text-slate-400 whitespace-nowrap flex items-center gap-1">
           <Zap className="w-3 h-3 text-amber-400" />
-          <span>{isRtl ? 'دستورات سریع IT:' : 'Quick Commands:'}</span>
+          <span>{isRtl ? 'دستورات سریع:' : 'Quick Commands:'}</span>
         </span>
         {quickCommands.map((cmd, idx) => (
           <button
             key={idx}
-            onClick={() => executeCommand(cmd.name)}
-            className="bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white px-2.5 py-1 rounded-lg font-mono text-[11px] whitespace-nowrap transition-colors flex items-center gap-1.5 group"
+            disabled={!isPeerReady || isExecuting}
+            onClick={() => handleRun(cmd.name)}
+            className="bg-slate-800/80 hover:bg-slate-700 disabled:opacity-40 border border-slate-700 text-slate-300 hover:text-white px-2.5 py-1 rounded-lg font-mono text-[11px] whitespace-nowrap transition-colors"
             title={cmd.desc}
           >
-            <span>{cmd.name}</span>
+            {cmd.name}
           </button>
         ))}
       </div>
 
       {/* Terminal Screen Console */}
-      <div className="flex-1 p-4 overflow-y-auto font-['JetBrains_Mono',monospace] text-xs leading-relaxed space-y-3 bg-[#0a0c12] text-slate-200 select-text">
+      <div
+        dir="ltr"
+        className="flex-1 p-4 overflow-y-auto font-['JetBrains_Mono',monospace] text-xs leading-relaxed space-y-3 bg-[#0a0c12] text-slate-200 select-text text-left"
+      >
+        {!isPeerReady && (
+          <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3 flex items-center gap-2 text-amber-300">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>
+              {connectionError ||
+                (isRtl
+                  ? 'در انتظار برقراری ارتباط با سیستم مقصد... (برای اجرای دستور واقعی، سیستم مقصد باید با اپلیکیشن دسکتاپ تائوری یا ایجنت بومی متصل باشد).'
+                  : 'Waiting for connection to target machine...')}
+            </span>
+          </div>
+        )}
+
         {history.map((item, idx) => (
           <div key={idx} className="space-y-1">
             {item.type === 'input' && (
               <div className="flex items-center gap-2 text-amber-400 font-bold">
-                <span className="text-red-400">PS C:\Windows\system32&gt;</span>
+                <span className="text-red-400">&gt;</span>
                 <span>{item.text}</span>
               </div>
             )}
 
             {item.type === 'output' && (
-              <div className="text-slate-300 whitespace-pre-wrap pl-4 border-l-2 border-slate-800 py-1 font-normal">
+              <div className="text-slate-200 whitespace-pre-wrap pl-4 border-l-2 border-emerald-700/60 py-1 font-normal">
+                {item.text}
+              </div>
+            )}
+
+            {item.type === 'error' && (
+              <div className="text-rose-400 whitespace-pre-wrap pl-4 border-l-2 border-rose-700/60 py-1 font-normal">
                 {item.text}
               </div>
             )}
@@ -208,23 +225,33 @@ export const RemoteTerminal: React.FC<RemoteTerminalProps> = ({
 
       {/* Terminal Command Input */}
       <div className="p-3 bg-[#161922] border-t border-slate-800 flex items-center gap-2">
-        <span className="font-mono text-xs font-bold text-red-400 pl-2">PS &gt;</span>
+        <span className="font-mono text-xs font-bold text-red-400 pl-2">&gt;</span>
         <input
           type="text"
+          dir="ltr"
           value={inputCommand}
+          disabled={!isPeerReady || isExecuting}
           onChange={(e) => setInputCommand(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && executeCommand()}
-          placeholder={isRtl ? 'دستور خود را وارد کنید (مثال: ipconfig, ping, tasklist)...' : 'Type remote command (e.g., ipconfig, ping, tasklist)...'}
-          className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-emerald-400 focus:outline-none focus:border-red-500"
+          onKeyDown={(e) => e.key === 'Enter' && handleRun()}
+          placeholder={
+            isPeerReady
+              ? isRtl
+                ? 'دستور واقعی را تایپ کنید (مثلاً: dir, hostname, ipconfig)...'
+                : 'Type real OS command...'
+              : isRtl
+              ? 'در انتظار اتصال به سیستم مقصد...'
+              : 'Waiting for connection...'
+          }
+          className="flex-1 bg-slate-900 border border-slate-700 disabled:opacity-50 rounded-xl px-3 py-2 text-xs font-mono text-emerald-400 focus:outline-none focus:border-red-500 text-left"
           autoFocus
         />
         <button
-          onClick={() => executeCommand()}
-          disabled={!inputCommand.trim()}
+          onClick={() => handleRun()}
+          disabled={!isPeerReady || !inputCommand.trim() || isExecuting}
           className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md"
         >
           <Play className="w-3.5 h-3.5" />
-          <span>{isRtl ? 'اجرا' : 'Run'}</span>
+          <span>{isExecuting ? (isRtl ? 'در حال اجرا...' : 'Running...') : isRtl ? 'اجرا' : 'Run'}</span>
         </button>
       </div>
     </div>

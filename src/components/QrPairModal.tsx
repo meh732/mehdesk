@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 import { X, Smartphone, Copy, Check, QrCode, Monitor, Sparkles, ArrowRight, ArrowLeft } from 'lucide-react';
+import { getServerBaseUrl, isTauriRuntime } from '../utils/serverConfig';
 
 interface QrPairModalProps {
   isOpen: boolean;
@@ -18,9 +19,16 @@ export const QrPairModal: React.FC<QrPairModalProps> = ({
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [copied, setCopied] = useState(false);
 
-  // Generate pairing URL with localId as parameter
-  const appUrl = typeof window !== 'undefined' ? window.location.href.split('?')[0] : '';
-  const connectUrl = `${appUrl}?connect=${localId.replace(/\s+/g, '')}&autojoin=true`;
+  // Generate pairing URL with localId as parameter (use configured server URL in Tauri instead of tauri.localhost)
+  const serverBase = getServerBaseUrl();
+  const appUrl =
+    typeof window !== 'undefined'
+      ? isTauriRuntime()
+        ? serverBase || 'https://your-mehdesk-server'
+        : window.location.href.split('?')[0]
+      : '';
+  const cleanAppUrl = appUrl.endsWith('/') ? appUrl : `${appUrl}/`;
+  const connectUrl = `${cleanAppUrl}?connect=${localId.replace(/\s+/g, '')}&autojoin=true`;
 
   useEffect(() => {
     if (isOpen && connectUrl) {

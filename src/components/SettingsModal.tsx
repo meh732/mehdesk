@@ -1,20 +1,18 @@
-import React, { useState } from 'react';
-import { 
-  X, 
-  ShieldCheck, 
-  Lock, 
-  Key, 
-  Sliders, 
-  Tv, 
-  HardDrive, 
-  Volume2, 
-  Check, 
-  AlertCircle,
-  EyeOff,
-  Radio,
-  FileSpreadsheet
+import React, { useState, useEffect } from 'react';
+import {
+  X,
+  ShieldCheck,
+  Key,
+  Sliders,
+  Tv,
+  Volume2,
+  Check,
+  Globe,
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
 import { SessionPermissions } from '../types';
+import { getServerBaseUrl, setServerBaseUrl, normalizeServerBaseUrl, isTauriRuntime } from '../utils/serverConfig';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -27,6 +25,8 @@ interface SettingsModalProps {
   permissions: SessionPermissions;
   setPermissions: React.Dispatch<React.SetStateAction<SessionPermissions>>;
   isRtl: boolean;
+  onServerSettingsSaved?: (serverChanged: boolean) => void;
+  defaultTab?: 'security' | 'display' | 'audio' | 'connection';
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -39,26 +39,87 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   setUnattendedPassword,
   permissions,
   setPermissions,
-  isRtl
+  isRtl,
+  onServerSettingsSaved,
+  defaultTab = 'security'
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'security' | 'display' | 'audio' | 'connection'>('security');
+  const [activeSubTab, setActiveSubTab] = useState<'security' | 'display' | 'audio' | 'connection'>(defaultTab);
+  const [serverUrlInput, setServerUrlInput] = useState<string>(() => getServerBaseUrl());
+  const [testingServer, setTestingServer] = useState(false);
+  const [serverTestResult, setServerTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [savedAlert, setSavedAlert] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setServerUrlInput(getServerBaseUrl());
+      setServerTestResult(null);
+      if (isTauriRuntime() && !getServerBaseUrl()) {
+        setActiveSubTab('connection');
+      } else {
+        setActiveSubTab(defaultTab);
+      }
+    }
+  }, [isOpen, defaultTab]);
 
   if (!isOpen) return null;
 
   const handleTogglePermission = (key: keyof SessionPermissions) => {
-    setPermissions(prev => ({
+    setPermissions((prev) => ({
       ...prev,
       [key]: !prev[key]
     }));
   };
 
+  const handleTestServerConnection = async () => {
+    const normalized = normalizeServerBaseUrl(serverUrlInput);
+    if (!normalized) {
+      setServerTestResult({
+        ok: false,
+        msg: isRtl ? 'لطفاً آدرس سرور (IP یا دامنه) را وارد کنید.' : 'Please enter a server URL.'
+      });
+      return;
+    }
+    setTestingServer(true);
+    setServerTestResult(null);
+    try {
+      const res = await fetch(`${normalized}/api/health`);
+      const data = await res.json();
+      if (res.ok && data?.status === 'ok') {
+        setServerTestResult({
+          ok: true,
+          msg: isRtl
+            ? `اتصال به سرور با موفقیت برقرار شد (${data.activePeers ?? 0} کلاینت آنلاین)`
+            : `Connected successfully (${data.activePeers ?? 0} online peers)`
+        });
+      } else {
+        setServerTestResult({
+          ok: false,
+          msg: isRtl ? 'پاسخ نامعتبر از سرور دریافت شد.' : 'Invalid response from server.'
+        });
+      }
+    } catch (err: any) {
+      setServerTestResult({
+        ok: false,
+        msg: isRtl ? `خطا در اتصال به سرور: ${err?.message || 'Timeout'}` : `Connection failed: ${err?.message}`
+      });
+    } finally {
+      setTestingServer(false);
+    }
+  };
+
   const handleSave = () => {
+    localStorage.setItem('mehdesk_alias', alias.trim());
+    localStorage.setItem('mehdesk_password', unattendedPassword);
+    const prevUrl = getServerBaseUrl();
+    const nextUrl = setServerBaseUrl(serverUrlInput);
+    const serverChanged = prevUrl !== nextUrl;
+
+    onServerSettingsSaved?.(serverChanged);
     setSavedAlert(true);
     setTimeout(() => {
       setSavedAlert(false);
       onClose();
-    }, 800);
+    }, 650);
   };
 
   return (
@@ -87,10 +148,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         {/* Tab switcher */}
-        <div className="flex items-center gap-1 my-4 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs font-medium">
+        <div className="flex items-center gap-1 my-4 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs font-medium overflow-x-auto">
           <button
             onClick={() => setActiveSubTab('security')}
-            className={`flex-1 py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+            className={`flex-1 py-2 px-2 rounded-lg transition-all flex items-center justify-center gap-1.5 whitespace-nowrap ${
               activeSubTab === 'security' ? 'bg-red-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -98,22 +159,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <span>{isRtl ? 'امنیت و گذرواژه' : 'Security'}</span>
           </button>
           <button
+            onClick={() => setActiveSubTab('connection')}
+            className={`flex-1 py-2 px-2 rounded-lg transition-all flex items-center justify-center gap-1.5 whitespace-nowrap ${
+              activeSubTab === 'connection' ? 'bg-red-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span>{isRtl ? 'آدرس سرور مرکزی' : 'Server URL'}</span>
+          </button>
+          <button
             onClick={() => setActiveSubTab('display')}
-            className={`flex-1 py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+            className={`flex-1 py-2 px-2 rounded-lg transition-all flex items-center justify-center gap-1.5 whitespace-nowrap ${
               activeSubTab === 'display' ? 'bg-red-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
             <Tv className="w-3.5 h-3.5" />
-            <span>{isRtl ? 'نمایش و کیفیت' : 'Display & Video'}</span>
+            <span>{isRtl ? 'نمایش و کیفیت' : 'Display'}</span>
           </button>
           <button
             onClick={() => setActiveSubTab('audio')}
-            className={`flex-1 py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+            className={`flex-1 py-2 px-2 rounded-lg transition-all flex items-center justify-center gap-1.5 whitespace-nowrap ${
               activeSubTab === 'audio' ? 'bg-red-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
             <Volume2 className="w-3.5 h-3.5" />
-            <span>{isRtl ? 'صدا و انتقال' : 'Audio & Transfer'}</span>
+            <span>{isRtl ? 'صدا و انتقال' : 'Audio'}</span>
           </button>
         </div>
 
@@ -277,6 +347,57 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     {isRtl ? 'امکان فعال‌سازی پرده سیاه خصوصی در نوار ابزار' : 'Enable Privacy Screen button in toolbar'}
                   </label>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {activeSubTab === 'connection' && (
+            <div className="space-y-4">
+              <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-800 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Globe className="w-4 h-4 text-emerald-400" />
+                  <span className="font-semibold text-slate-200">
+                    {isRtl ? 'نشانی سرور مرکزی سیگنالینگ (مخصوص Tauri / اتصال بین دستگاه‌ها)' : 'Central Signaling Server URL (Required for Tauri .exe)'}
+                  </span>
+                </div>
+                <p className="text-slate-400 text-[11px] leading-relaxed">
+                  {isRtl
+                    ? 'در اپلیکیشن دسکتاپ تائوری (.exe)، نشانی سرور مرکزی خود را وارد کنید (مثال: https://remote.company.com یا http://194.61.3.92:3000) تا تمام کامپیوترها و گوشی‌ها یکدیگر را پیدا کنند.'
+                    : 'Enter the URL of your MehDesk server (e.g., https://remote.company.com or http://194.61.3.92:3000) so desktop and web clients connect to the same hub.'}
+                </p>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    dir="ltr"
+                    value={serverUrlInput}
+                    onChange={(e) => setServerUrlInput(e.target.value)}
+                    placeholder="http://194.61.3.92:3000"
+                    className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 font-mono focus:border-red-500 focus:outline-none text-left"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleTestServerConnection}
+                    disabled={testingServer}
+                    className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 font-semibold flex items-center gap-1.5 shrink-0"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${testingServer ? 'animate-spin' : ''}`} />
+                    <span>{isRtl ? 'تست اتصال' : 'Test'}</span>
+                  </button>
+                </div>
+
+                {serverTestResult && (
+                  <div
+                    className={`p-2.5 rounded-lg border flex items-center gap-2 text-[11px] ${
+                      serverTestResult.ok
+                        ? 'bg-emerald-950/40 border-emerald-700 text-emerald-300'
+                        : 'bg-rose-950/40 border-rose-700 text-rose-300'
+                    }`}
+                  >
+                    {serverTestResult.ok ? <Check className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+                    <span>{serverTestResult.msg}</span>
+                  </div>
+                )}
               </div>
             </div>
           )}

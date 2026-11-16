@@ -13,6 +13,17 @@ const PORT = parseInt(process.env.PORT || "3000", 10);
 
 app.use(express.json());
 
+// Enable CORS for Tauri desktop clients (tauri://localhost, https://tauri.localhost) and cross-origin requests
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 // Initialize Gemini client lazily
 let aiClient: GoogleGenAI | null = null;
 function getAI() {
@@ -29,11 +40,16 @@ interface PeerClient {
   ws: WebSocket;
   alias?: string;
   isHost?: boolean;
+  isTauri?: boolean;
+  hasStream?: boolean;
   unattendedPassword?: string;
   deviceInfo?: {
     os: string;
     name: string;
     screenResolution?: string;
+    userAgent?: string;
+    platform?: string;
+    screen?: string;
   };
 }
 
@@ -47,6 +63,24 @@ app.get("/api/health", (req, res) => {
     activePeers: activeClients.size,
     timestamp: new Date().toISOString()
   });
+});
+
+// API: Provide WebRTC ICE servers (STUN + optional TURN from env)
+app.get("/api/ice-servers", (req, res) => {
+  const iceServers: any[] = [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun2.l.google.com:19302" },
+    { urls: "stun:stun.cloudflare.com:3478" }
+  ];
+  if (process.env.TURN_URL) {
+    iceServers.push({
+      urls: process.env.TURN_URL,
+      username: process.env.TURN_USERNAME || "",
+      credential: process.env.TURN_CREDENTIAL || ""
+    });
+  }
+  res.json({ success: true, iceServers });
 });
 
 // API: Get online devices or search by ID
@@ -733,20 +767,17 @@ while ($ws.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
                     $k = $msg.key
                     $code = $msg.code
                     try {
-                        if ($k -eq "LWin" -or $code -eq "OSLeft" -or $code -eq "OSRight") {
-                            # Windows Key (0x5B)
+                        if ($k -eq "LWin" -or $k -eq "Meta" -or $code -eq "OSLeft" -or $code -eq "OSRight") {
                             [WinInputNative]::keybd_event(0x5B, 0, 0, [UIntPtr]::Zero)
                             Start-Sleep -Milliseconds 30
                             [WinInputNative]::keybd_event(0x5B, 0, 2, [UIntPtr]::Zero)
                         } elseif ($msg.altKey -and ($k -eq "Tab" -or $code -eq "Tab")) {
-                            # Alt + Tab
-                            [WinInputNative]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero) # ALT
-                            [WinInputNative]::keybd_event(0x09, 0, 0, [UIntPtr]::Zero) # TAB
+                            [WinInputNative]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
+                            [WinInputNative]::keybd_event(0x09, 0, 0, [UIntPtr]::Zero)
                             Start-Sleep -Milliseconds 30
                             [WinInputNative]::keybd_event(0x09, 0, 2, [UIntPtr]::Zero)
                             [WinInputNative]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
                         } elseif ($msg.ctrlKey -and $k -and $k.Length -eq 1) {
-                            # Ctrl + key combinations (e.g. Ctrl+C, Ctrl+V, Ctrl+A, Ctrl+Z)
                             [System.Windows.Forms.SendKeys]::SendWait("^" + $k.ToLower())
                         } else {
                             switch ($k) {
@@ -754,7 +785,9 @@ while ($ws.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
                                 "Backspace" { [System.Windows.Forms.SendKeys]::SendWait("{BACKSPACE}") }
                                 "Tab"       { [System.Windows.Forms.SendKeys]::SendWait("{TAB}") }
                                 "Escape"    { [System.Windows.Forms.SendKeys]::SendWait("{ESC}") }
+                                "Esc"       { [System.Windows.Forms.SendKeys]::SendWait("{ESC}") }
                                 "Delete"    { [System.Windows.Forms.SendKeys]::SendWait("{DEL}") }
+                                "Del"       { [System.Windows.Forms.SendKeys]::SendWait("{DEL}") }
                                 "ArrowUp"   { [System.Windows.Forms.SendKeys]::SendWait("{UP}") }
                                 "ArrowDown" { [System.Windows.Forms.SendKeys]::SendWait("{DOWN}") }
                                 "ArrowLeft" { [System.Windows.Forms.SendKeys]::SendWait("{LEFT}") }
@@ -763,6 +796,9 @@ while ($ws.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
                                 "End"       { [System.Windows.Forms.SendKeys]::SendWait("{END}") }
                                 "PageUp"    { [System.Windows.Forms.SendKeys]::SendWait("{PGUP}") }
                                 "PageDown"  { [System.Windows.Forms.SendKeys]::SendWait("{PGDN}") }
+                                "F1"        { [System.Windows.Forms.SendKeys]::SendWait("{F1}") }
+                                "F5"        { [System.Windows.Forms.SendKeys]::SendWait("{F5}") }
+                                "F12"       { [System.Windows.Forms.SendKeys]::SendWait("{F12}") }
                                 " "         { [System.Windows.Forms.SendKeys]::SendWait(" ") }
                                 Default {
                                     if ($k.Length -eq 1) {
@@ -773,6 +809,38 @@ while ($ws.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
                             }
                         }
                     } catch {}
+                }
+            }
+            "terminal_exec" {
+                try {
+                    $cmdOut = Invoke-Expression $msg.command 2>&1 | Out-String
+                    $respObj = @{
+                        type = "terminal_output"
+                        targetId = $msg.senderId
+                        requestId = $msg.requestId
+                        stdout = $cmdOut
+                        stderr = ""
+                        exitCode = 0
+                        cwd = (Get-Location).Path
+                        os = "windows"
+                    } | ConvertTo-Json -Compress
+                    $respBytes = [System.Text.Encoding]::UTF8.GetBytes($respObj)
+                    $respSeg = New-Object System.ArraySegment[byte] -ArgumentList @(,$respBytes)
+                    $ws.SendAsync($respSeg, [System.Net.WebSockets.WebSocketMessageType]::Text, $true, $cts.Token).Wait()
+                } catch {
+                    $errObj = @{
+                        type = "terminal_output"
+                        targetId = $msg.senderId
+                        requestId = $msg.requestId
+                        stdout = ""
+                        stderr = $_.Exception.Message
+                        exitCode = 1
+                        cwd = (Get-Location).Path
+                        os = "windows"
+                    } | ConvertTo-Json -Compress
+                    $respBytes = [System.Text.Encoding]::UTF8.GetBytes($errObj)
+                    $respSeg = New-Object System.ArraySegment[byte] -ArgumentList @(,$respBytes)
+                    $ws.SendAsync($respSeg, [System.Net.WebSockets.WebSocketMessageType]::Text, $true, $cts.Token).Wait()
                 }
             }
         }
@@ -895,6 +963,9 @@ app.get("/api/online-devices", (req, res) => {
     rawId: c.rawId,
     alias: c.alias,
     isHost: c.isHost,
+    isTauri: !!c.isTauri,
+    hasStream: !!c.hasStream,
+    hasPassword: !!c.unattendedPassword,
     deviceInfo: c.deviceInfo
   }));
   res.json({ success: true, count: list.length, devices: list });
@@ -933,11 +1004,13 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
             ws,
             alias: data.alias || `${peerId}@desk`,
             isHost: !!data.isHost,
+            isTauri: !!data.isTauri,
+            hasStream: !!data.hasStream,
             unattendedPassword: data.unattendedPassword || "",
             deviceInfo: data.deviceInfo
           });
 
-          console.log(`[WS] Client Registered: ${peerId} (raw: ${data.id}, alias: ${data.alias || 'no-alias'}), Total Active: ${activeClients.size}`);
+          console.log(`[WS] Client Registered: ${peerId} (raw: ${data.id}, tauri: ${!!data.isTauri}, alias: ${data.alias || 'no-alias'}), Total Active: ${activeClients.size}`);
 
           ws.send(JSON.stringify({
             type: "registered",
@@ -989,20 +1062,45 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
           const targetQuery = data.targetId || data.toId;
           const targetHost = findActiveClient(targetQuery);
           const fromNormalized = normalizeDeskId(data.fromId || data.senderId || peerId);
+          const mode = data.mode || "desktop";
 
-          console.log(`[WS] Connection request from '${fromNormalized}' to '${targetQuery}' -> Found: ${!!targetHost}`);
+          console.log(`[WS] Connection request (${mode}) from '${fromNormalized}' to '${targetQuery}' -> Found: ${!!targetHost}`);
 
           // Prevent connecting to oneself
           if (targetHost && targetHost.id === fromNormalized) {
             console.warn(`[WS] Client '${fromNormalized}' tried to connect to itself.`);
             ws.send(JSON.stringify({
               type: "connect_error",
-              message: `شما شناسه سیستم فعلی خودتان (${targetQuery}) را وارد کرده‌اید! در مه دسک برای برقراری ارتباط ریموت، باید شناسه کامپیوتر یا سرور مقصد را وارد نمایید. اگر قصد تست دارید، یک پنجره ناشناس (Incognito) باز فرمایید.`
+              message: `شما شناسه سیستم فعلی خودتان (${targetQuery}) را وارد کرده‌اید! در مه دسک برای برقراری ارتباط ریموت، باید شناسه کامپیوتر یا سرور مقصد را وارد نمایید.`
             }));
             break;
           }
 
           if (targetHost && targetHost.ws.readyState === WebSocket.OPEN) {
+            const hasPassword = !!targetHost.unattendedPassword;
+            let unattendedAuthorized = false;
+
+            if (hasPassword && !data.manualApproval) {
+              if (!data.providedPassword) {
+                ws.send(JSON.stringify({
+                  type: "password_required",
+                  targetId: targetHost.id,
+                  alias: targetHost.alias,
+                  mode
+                }));
+                break;
+              }
+              if (data.providedPassword !== targetHost.unattendedPassword) {
+                ws.send(JSON.stringify({
+                  type: "connect_error",
+                  code: "invalid_password",
+                  message: `رمز عبور دسترسی بدون نظارت برای سیستم ${targetHost.alias || targetQuery} اشتباه است.`
+                }));
+                break;
+              }
+              unattendedAuthorized = true;
+            }
+
             targetHost.ws.send(JSON.stringify({
               type: "incoming_connection",
               fromId: fromNormalized,
@@ -1010,7 +1108,9 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
               fromAlias: data.fromAlias || data.requesterName || `Client (${fromNormalized})`,
               fromDevice: data.fromDevice || data.requesterDevice || "Remote Client",
               requestType: data.requestType || "full_control",
-              requiresPassword: !!targetHost.unattendedPassword,
+              mode,
+              requiresPassword: hasPassword,
+              unattendedAuthorized,
               providedPassword: data.providedPassword
             }));
           } else {
@@ -1028,14 +1128,18 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
           const targetQuery = data.toId;
           const viewer = findActiveClient(targetQuery);
           const fromHostNormalized = normalizeDeskId(data.hostId || peerId);
-          
-          console.log(`[WS] Connect response from host '${fromHostNormalized}' for viewer '${targetQuery}': accepted=${data.accepted}`);
+          const hostClient = findActiveClient(fromHostNormalized);
+
+          console.log(`[WS] Connect response from host '${fromHostNormalized}' for viewer '${targetQuery}': accepted=${data.accepted}, mode=${data.mode || 'desktop'}`);
 
           if (viewer && viewer.ws.readyState === WebSocket.OPEN) {
             viewer.ws.send(JSON.stringify({
               type: "connection_result",
+              hostId: fromHostNormalized,
               accepted: data.accepted,
               permissions: data.permissions,
+              mode: data.mode || "desktop",
+              hostIsTauri: !!hostClient?.isTauri,
               reason: data.reason
             }));
 
@@ -1047,6 +1151,19 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
               }
               rooms.get(hostId)?.add(viewerId);
             }
+          }
+          break;
+        }
+
+        // Session end notification
+        case "session_end": {
+          const target = findActiveClient(data.targetId || data.toId);
+          if (target && target.ws.readyState === WebSocket.OPEN) {
+            target.ws.send(JSON.stringify({
+              type: "session_end",
+              senderId: normalizeDeskId(data.senderId || peerId),
+              reason: data.reason || "disconnected"
+            }));
           }
           break;
         }
@@ -1069,13 +1186,38 @@ wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
           break;
         }
 
-        // WebRTC Signaling: Offer, Answer, ICE candidate & data forwarding
+        // WebRTC Signaling & Peer Data Relay (with Native Agent terminal support)
+        case "terminal_exec": {
+          const targetId = normalizeDeskId(data.targetId || data.toId);
+          const target = findActiveClient(targetId);
+          const sender = normalizeDeskId(data.senderId || peerId);
+          const payload = { ...data, senderId: sender };
+          // If target is Tauri, its browser/WebView2 executes via Rust invoke; if browser-only with native agent, forward to agent too
+          if (target && target.isTauri && target.ws.readyState === WebSocket.OPEN) {
+            target.ws.send(JSON.stringify(payload));
+          } else {
+            const agentWs = inputAgents.get(targetId);
+            if (agentWs && agentWs.readyState === WebSocket.OPEN) {
+              agentWs.send(JSON.stringify(payload));
+            } else if (target && target.ws.readyState === WebSocket.OPEN) {
+              target.ws.send(JSON.stringify(payload));
+            }
+          }
+          break;
+        }
+
         case "signal_offer":
         case "signal_answer":
         case "signal_ice":
         case "clipboard_sync":
+        case "file_list_request":
+        case "file_list_response":
+        case "file_download_request":
         case "file_meta":
         case "file_chunk":
+        case "file_complete":
+        case "file_cancel":
+        case "terminal_output":
         case "whiteboard_draw":
         case "chat_message":
         case "session_control": {

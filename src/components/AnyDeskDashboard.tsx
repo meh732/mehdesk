@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { Device, OSType } from '../types';
 import { normalizeDeskId } from '../utils/webrtc';
+import { apiUrl, getServerBaseUrl, isTauriRuntime } from '../utils/serverConfig';
 
 interface AnyDeskDashboardProps {
   localId: string;
@@ -49,6 +50,7 @@ interface AnyDeskDashboardProps {
   openDeployModal?: () => void;
   isRtl: boolean;
   onAddDevice: (newDevice: Device) => void;
+  signalingStatus?: 'connected' | 'connecting' | 'disconnected' | 'server_url_required';
 }
 
 export const AnyDeskDashboard: React.FC<AnyDeskDashboardProps> = ({
@@ -65,46 +67,53 @@ export const AnyDeskDashboard: React.FC<AnyDeskDashboardProps> = ({
   openSettingsModal,
   openDeployModal,
   isRtl,
-  onAddDevice
+  onAddDevice,
+  signalingStatus = 'connecting'
 }) => {
   const [remoteInput, setRemoteInput] = useState('');
   const [copied, setCopied] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
-  const [onlineDevices, setOnlineDevices] = useState<Array<{ id: string; rawId: string; alias: string; isHost: boolean; deviceInfo?: any }>>([]);
+  const [statusNotice, setStatusNotice] = useState<string | null>(null);
+  const [onlineDevices, setOnlineDevices] = useState<
+    Array<{ id: string; rawId: string; alias: string; isHost: boolean; isTauri?: boolean; deviceInfo?: any }>
+  >([]);
 
-  // Fetch online devices from signaling server
+  // Fetch online devices from signaling server (works in Browser, Mobile, and Tauri)
   React.useEffect(() => {
     const fetchOnline = async () => {
       try {
-        const res = await fetch('/api/online-devices');
+        const url = apiUrl('/api/online-devices');
+        if (!url.startsWith('http') && isTauriRuntime()) return;
+        const res = await fetch(url);
         if (res.ok) {
           const data = await res.json();
           if (data.success && Array.isArray(data.devices)) {
             setOnlineDevices(data.devices);
           }
         }
-      } catch (err) {
-        // silent fetch error
+      } catch {
+        // silent retry on next interval
       }
     };
 
     fetchOnline();
-    const interval = setInterval(fetchOnline, 4000);
+    const interval = setInterval(fetchOnline, 3500);
     return () => clearInterval(interval);
-  }, []);
+  }, [signalingStatus]);
 
   const isSelfId = normalizeDeskId(remoteInput) === normalizeDeskId(localId) && remoteInput.replace(/\s+/g, '').length >= 6;
-  const otherOnlinePeers = onlineDevices.filter(d => normalizeDeskId(d.id) !== normalizeDeskId(localId));
+  const otherOnlinePeers = onlineDevices.filter((d) => normalizeDeskId(d.id) !== normalizeDeskId(localId));
 
   // New device form state
+  const [newDeskId, setNewDeskId] = useState('');
   const [newName, setNewName] = useState('');
   const [newAlias, setNewAlias] = useState('');
-  const [newDept, setNewDept] = useState('حسابداری و مالی');
-  const [newLocation, setNewLocation] = useState('دفتر مرکزی تهران');
+  const [newDept, setNewDept] = useState('عمومی');
+  const [newLocation, setNewLocation] = useState('دفتر مرکزی');
   const [newOs, setNewOs] = useState<OSType>('windows');
-  const [newIp, setNewIp] = useState('192.168.1.150');
+  const [newIp, setNewIp] = useState('');
 
   const handleCopyId = () => {
     navigator.clipboard.writeText(localId);
@@ -119,7 +128,11 @@ export const AnyDeskDashboard: React.FC<AnyDeskDashboardProps> = ({
 
   const handleWakeOnLan = (device: Device, e: React.MouseEvent) => {
     e.stopPropagation();
-    alert(isRtl ? `سیگنال Magic Packet (Wake-on-LAN) به کارت شبکه ${device.name} در آدرس ${device.ip} ارسال شد.` : `Magic Packet sent to ${device.name}.`);
+    const msg = isRtl
+      ? `درخواست بررسی اتصال یا بیدارباش برای ${device.name} (${device.id}) ثبت شد.`
+      : `Wake/reconnect requested for ${device.name}.`;
+    setStatusNotice(msg);
+    setTimeout(() => setStatusNotice(null), 4000);
   };
 
   const categories = [
@@ -142,31 +155,31 @@ export const AnyDeskDashboard: React.FC<AnyDeskDashboardProps> = ({
 
   const handleSaveNewDevice = () => {
     if (!newName.trim()) return;
-    const randomId = `${Math.floor(100 + Math.random() * 900)} ${Math.floor(100 + Math.random() * 900)} ${Math.floor(100 + Math.random() * 900)}`;
+    const cleanTargetId = newDeskId.trim() || `${Math.floor(100 + Math.random() * 900)} ${Math.floor(100 + Math.random() * 900)} ${Math.floor(100 + Math.random() * 900)}`;
     const created: Device = {
-      id: randomId,
+      id: cleanTargetId,
       name: newName,
       alias: newAlias || `${newName.toLowerCase().replace(/\s+/g, '-')}-pc@desk`,
       department: newDept,
       location: newLocation,
       os: newOs,
       status: 'online',
-      ip: newIp,
-      lastSeen: 'هم اکنون آنلاین',
-      unattendedAccess: true,
-      unattendedPassword: 'admin',
+      ip: newIp.trim() || '-',
+      lastSeen: isRtl ? 'ذخیره شده' : 'Saved',
+      unattendedAccess: false,
       specs: {
-        cpu: 'Intel Core i7 Gen 12',
-        ram: '16 GB',
-        storage: '512 GB SSD',
+        cpu: '-',
+        ram: '-',
+        storage: '-',
         resolution: '1920x1080',
         monitorsCount: 1,
-        osVersion: newOs === 'windows' ? 'Windows 11 Pro' : newOs === 'linux' ? 'Ubuntu 22.04' : 'macOS Sonoma'
+        osVersion: newOs === 'windows' ? 'Windows' : newOs === 'linux' ? 'Linux' : newOs === 'macos' ? 'macOS' : 'Android'
       },
       isFavorite: true
     };
     onAddDevice(created);
     setShowAddModal(false);
+    setNewDeskId('');
     setNewName('');
     setNewAlias('');
   };
@@ -184,6 +197,41 @@ export const AnyDeskDashboard: React.FC<AnyDeskDashboardProps> = ({
 
   return (
     <div className="max-w-7xl mx-auto p-4 sm:p-6 space-y-6">
+      {(signalingStatus === 'server_url_required' || signalingStatus === 'disconnected') && (
+        <div className="bg-amber-950/50 border border-amber-500/50 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-200">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
+            <div>
+              <div className="font-bold">
+                {signalingStatus === 'server_url_required'
+                  ? isRtl
+                    ? 'آدرس سرور مرکزی برای برنامه دسکتاپ Tauri تنظیم نشده است'
+                    : 'Central Server URL is not configured for Tauri app'
+                  : isRtl
+                  ? `ارتباط با سرور مرکزی (${getServerBaseUrl() || 'localhost'}) برقرار نیست`
+                  : `Disconnected from signaling server (${getServerBaseUrl() || 'localhost'})`}
+              </div>
+              <div className="text-[11px] text-amber-300/80 mt-0.5">
+                {isRtl
+                  ? 'برای اتصال دو کامپیوتر به هم، آدرس سرور meh desk (مثال: http://IP:3000 یا https://domain) را در تنظیمات وارد کنید.'
+                  : 'Configure the central server URL in Settings so both computers register on the same server.'}
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={openSettingsModal}
+            className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold shrink-0"
+          >
+            {isRtl ? 'تنظیم آدرس سرور' : 'Configure Server URL'}
+          </button>
+        </div>
+      )}
+
+      {statusNotice && (
+        <div className="bg-slate-800 border border-slate-700 text-emerald-300 text-xs rounded-xl px-4 py-2.5">
+          {statusNotice}
+        </div>
+      )}
       {/* TOP TWO HERO PANELS: "THIS DESK" & "REMOTE DESK" */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* PANEL 1: THIS DESK (این میز کار / کامپیوتر محلی) */}
@@ -352,21 +400,44 @@ export const AnyDeskDashboard: React.FC<AnyDeskDashboardProps> = ({
                   </span>
                 </div>
                 <div className="flex flex-wrap gap-2 pt-1">
-                  {otherOnlinePeers.map(peer => (
-                    <button
-                      key={peer.id}
-                      onClick={() => {
-                        setRemoteInput(peer.rawId || peer.id);
-                        onConnectToId(peer.rawId || peer.id, 'desktop');
-                      }}
-                      className="bg-emerald-900/40 hover:bg-emerald-800/60 border border-emerald-500/50 rounded-lg px-2.5 py-1.5 text-xs text-emerald-200 flex items-center gap-2 transition-all"
-                    >
-                      <Laptop className="w-3.5 h-3.5 text-emerald-400" />
-                      <span className="font-mono font-bold">{peer.rawId || peer.id}</span>
-                      <span className="text-[10px] text-emerald-300/80">({peer.alias || 'کلاینت'})</span>
-                      <ArrowLeft className={`w-3 h-3 text-emerald-400 ${isRtl ? '' : 'rotate-180'}`} />
-                    </button>
-                  ))}
+                  {otherOnlinePeers.map((peer) => {
+                    const peerId = peer.rawId || peer.id;
+                    return (
+                      <div
+                        key={peer.id}
+                        className="bg-emerald-900/40 border border-emerald-500/50 rounded-xl px-2.5 py-1.5 text-xs text-emerald-100 flex items-center gap-2"
+                      >
+                        <Laptop className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <button
+                          onClick={() => {
+                            setRemoteInput(peerId);
+                            onConnectToId(peerId, 'desktop');
+                          }}
+                          className="flex items-center gap-1.5 hover:underline"
+                          title={isRtl ? 'اتصال دسکتاپ ریموت' : 'Remote Desktop'}
+                        >
+                          <span className="font-mono font-bold">{peerId}</span>
+                          <span className="text-[10px] text-emerald-300/80">
+                            ({peer.alias || 'کلاینت'}{peer.isTauri ? ' • Desktop' : ''})
+                          </span>
+                        </button>
+                        <button
+                          onClick={() => onConnectToId(peerId, 'file')}
+                          className="p-1 rounded bg-slate-800/80 hover:bg-slate-700 text-amber-300"
+                          title={isRtl ? 'انتقال فایل' : 'File Transfer'}
+                        >
+                          <FolderSync className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => onConnectToId(peerId, 'terminal')}
+                          className="p-1 rounded bg-slate-800/80 hover:bg-slate-700 text-emerald-300"
+                          title={isRtl ? 'ترمینال' : 'Terminal'}
+                        >
+                          <Terminal className="w-3 h-3" />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -584,6 +655,17 @@ export const AnyDeskDashboard: React.FC<AnyDeskDashboardProps> = ({
             </h3>
 
             <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-400 mb-1">{isRtl ? 'شناسه ۹ رقمی مقصد (اختیاری - اگر دارید وارد کنید):' : 'Target 9-Digit Desk ID:'}</label>
+                <input
+                  type="text"
+                  value={newDeskId}
+                  onChange={(e) => setNewDeskId(e.target.value)}
+                  placeholder="601 407 623"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 font-mono focus:outline-none focus:border-red-500"
+                />
+              </div>
+
               <div>
                 <label className="block text-slate-400 mb-1">{isRtl ? 'نام سیستم / کاربر:' : 'Machine Name:'}</label>
                 <input

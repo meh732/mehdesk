@@ -28,7 +28,7 @@ interface HeaderProps {
   localId: string;
   isRtl: boolean;
   setIsRtl: (val: boolean) => void;
-  signalingStatus?: 'connected' | 'connecting' | 'disconnected';
+  signalingStatus?: 'connected' | 'connecting' | 'disconnected' | 'server_url_required';
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -43,149 +43,204 @@ export const Header: React.FC<HeaderProps> = ({
   localId,
   isRtl,
   setIsRtl,
-  signalingStatus = 'connected'
+  signalingStatus = 'connecting'
 }) => {
   return (
-    <header className="bg-[#161922] border-b border-slate-800/80 px-4 py-2.5 flex items-center justify-between select-none sticky top-0 z-40 shadow-lg shadow-black/20">
-      {/* Brand & ID Info */}
-      <div className="flex items-center gap-3">
-        <div 
-          onClick={() => setActiveTab('dashboard')}
-          className="flex items-center gap-2.5 cursor-pointer group"
-        >
-          <div className="group-hover:scale-105 transition-transform shadow-md shadow-red-600/20 rounded-xl">
-            <MehLogo className="w-9 h-9" />
-          </div>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="font-extrabold text-lg tracking-tight text-white font-['Plus_Jakarta_Sans']">meh desk</span>
-              <span className="bg-red-500/20 text-red-400 text-[10px] font-bold px-1.5 py-0.5 rounded border border-red-500/30">v9.0</span>
+    <header className="bg-[#161922] border-b border-slate-800/80 px-3 sm:px-4 py-2.5 flex flex-col gap-2 select-none sticky top-0 z-40 shadow-lg shadow-black/20">
+      <div className="flex items-center justify-between gap-2">
+        {/* Brand & ID Info */}
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            onClick={() => setActiveTab('dashboard')}
+            className="flex items-center gap-2.5 cursor-pointer group shrink-0"
+          >
+            <div className="group-hover:scale-105 transition-transform shadow-md shadow-red-600/20 rounded-xl">
+              <MehLogo className="w-9 h-9" />
             </div>
-            <div className="text-[11px] text-slate-400 hidden sm:flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${
-                signalingStatus === 'connected'
-                  ? 'bg-emerald-500 animate-pulse ring-2 ring-emerald-500/30'
-                  : signalingStatus === 'connecting'
-                  ? 'bg-amber-400 animate-ping'
-                  : 'bg-rose-500'
-              }`}></span>
-              <span>
-                {signalingStatus === 'connected' 
-                  ? (isRtl ? 'متصل به سرور مرکزی' : 'Online & Gateway Synced')
-                  : signalingStatus === 'connecting'
-                  ? (isRtl ? 'در حال اتصال به سرور...' : 'Connecting to Server...')
-                  : (isRtl ? 'سرور قطع است' : 'Disconnected')}
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="font-extrabold text-lg tracking-tight text-white font-['Plus_Jakarta_Sans']">meh desk</span>
+                <span className="bg-red-500/20 text-red-400 text-[10px] font-bold px-1.5 py-0.5 rounded border border-red-500/30">v9.0</span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openSettingsModal();
+                }}
+                className="text-[11px] text-slate-400 flex items-center gap-1.5 hover:text-slate-200 transition-colors"
+                title={isRtl ? 'تنظیمات اتصال به سرور مرکزی' : 'Server Connection Settings'}
+              >
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    signalingStatus === 'connected'
+                      ? 'bg-emerald-500 animate-pulse ring-2 ring-emerald-500/30'
+                      : signalingStatus === 'connecting'
+                      ? 'bg-amber-400 animate-ping'
+                      : 'bg-rose-500'
+                  }`}
+                ></span>
+                <span className="hidden sm:inline">
+                  {signalingStatus === 'connected'
+                    ? isRtl
+                      ? 'متصل به سرور مرکزی'
+                      : 'Online & Synced'
+                    : signalingStatus === 'connecting'
+                    ? isRtl
+                      ? 'در حال اتصال به سرور...'
+                      : 'Connecting...'
+                    : signalingStatus === 'server_url_required'
+                    ? isRtl
+                      ? 'آدرس سرور را تنظیم کنید'
+                      : 'Set Server URL'
+                    : isRtl
+                    ? 'سرور قطع است (تلاش مجدد...)'
+                    : 'Disconnected'}
+                </span>
+                <span className="text-slate-600 mx-0.5 hidden sm:inline">|</span>
+                <span className="text-slate-300 font-mono font-medium">{localId}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Desktop Navigation tabs */}
+          <nav className="hidden md:flex items-center gap-1 bg-slate-900/80 p-1 rounded-xl border border-slate-800 text-xs font-medium mr-2">
+            <button
+              onClick={() => setActiveTab('dashboard')}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                activeTab === 'dashboard'
+                  ? 'bg-red-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              }`}
+            >
+              <Tv className="w-3.5 h-3.5" />
+              <span>{isRtl ? 'داشبورد اصلی' : 'Dashboard'}</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('devices')}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                activeTab === 'devices'
+                  ? 'bg-red-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>{isRtl ? 'دفترچه سیستم‌ها' : 'Address Book'}</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('host')}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                activeTab === 'host'
+                  ? 'bg-red-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              }`}
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span className="relative">
+                {isRtl ? 'میزبانی صفحه این سیستم' : 'Host My Screen'}
+                {isHosting && <span className="absolute -top-1 -right-2 w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>}
               </span>
-              <span className="text-slate-600 mx-1">|</span>
-              <span className="text-slate-300 font-mono font-medium">{localId}</span>
-            </div>
-          </div>
+            </button>
+          </nav>
         </div>
 
-        {/* Navigation tabs */}
-        <nav className="hidden md:flex items-center gap-1 bg-slate-900/80 p-1 rounded-xl border border-slate-800 text-xs font-medium mr-2">
+        {/* Action Utilities & Mobile QR */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <PWAInstallButton isRtl={isRtl} />
+
           <button
-            onClick={() => setActiveTab('dashboard')}
-            className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-              activeTab === 'dashboard' 
-                ? 'bg-red-600 text-white shadow-sm' 
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-            }`}
+            onClick={openDeployModal}
+            className="hidden xl:flex items-center gap-1.5 bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+            title={isRtl ? 'استقرار و دانلود کلاینت ویندوز / لینوکس' : 'Deployment & Downloads'}
           >
-            <Tv className="w-3.5 h-3.5" />
-            <span>{isRtl ? 'داشبورد اصلی' : 'Dashboard'}</span>
-          </button>
-          
-          <button
-            onClick={() => setActiveTab('devices')}
-            className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-              activeTab === 'devices' 
-                ? 'bg-red-600 text-white shadow-sm' 
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-            }`}
-          >
-            <Layers className="w-3.5 h-3.5" />
-            <span>{isRtl ? 'دفترچه سیستم‌ها' : 'Address Book'}</span>
+            <Server className="w-3.5 h-3.5 text-cyan-400" />
+            <span>{isRtl ? 'نصاب و اگزه' : 'Deploy'}</span>
           </button>
 
           <button
-            onClick={() => setActiveTab('host')}
-            className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-              activeTab === 'host' 
-                ? 'bg-red-600 text-white shadow-sm' 
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-            }`}
+            onClick={openAdminModal}
+            className="flex items-center gap-1.5 bg-gradient-to-r from-red-950/60 to-slate-900 hover:bg-red-900/50 border border-red-500/40 text-red-300 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-sm group"
+            title={isRtl ? 'پنل اختصاصی ادمین' : 'Admin Console'}
           >
-            <Share2 className="w-3.5 h-3.5" />
-            <span className="relative">
-              {isRtl ? 'میزبانی صفحه این سیستم' : 'Host My Screen'}
-              {isHosting && (
-                <span className="absolute -top-1 -right-2 w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-              )}
-            </span>
+            <ShieldAlert className="w-3.5 h-3.5 text-red-400 group-hover:scale-110 transition-transform" />
+            <span className="hidden sm:inline">{isRtl ? 'پنل ادمین' : 'Admin'}</span>
           </button>
-        </nav>
+
+          <button
+            onClick={openQrModal}
+            className="flex items-center gap-1.5 bg-gradient-to-r from-amber-600/20 to-orange-600/20 hover:from-amber-600/30 hover:to-orange-600/30 border border-amber-500/40 text-amber-300 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium transition-all shadow-sm group"
+            title={isRtl ? 'اتصال سریع با گوشی موبایل' : 'Connect with Mobile Phone'}
+          >
+            <Smartphone className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
+            <span className="hidden sm:inline">{isRtl ? 'ریموت با موبایل' : 'Mobile Connect'}</span>
+          </button>
+
+          <button
+            onClick={openAiAssistant}
+            className="flex items-center gap-1.5 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 text-purple-300 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium transition-all shadow-sm"
+            title={isRtl ? 'پشتیبان هوشمند IT' : 'AI IT Copilot'}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
+            <span className="hidden xl:inline">{isRtl ? 'دستیار AI' : 'AI Copilot'}</span>
+          </button>
+
+          <button
+            onClick={() => {
+              const nextRtl = !isRtl;
+              setIsRtl(nextRtl);
+              document.documentElement.setAttribute('dir', nextRtl ? 'rtl' : 'ltr');
+              document.documentElement.setAttribute('lang', nextRtl ? 'fa' : 'en');
+            }}
+            className="p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 text-xs font-medium border border-slate-700/60 transition-colors flex items-center gap-1"
+            title={isRtl ? 'تغییر زبان به English' : 'Change Language to Persian'}
+          >
+            <Globe className="w-3.5 h-3.5 text-slate-400" />
+            <span className="font-semibold hidden sm:inline">{isRtl ? 'FA' : 'EN'}</span>
+          </button>
+
+          <button
+            onClick={openSettingsModal}
+            className="p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border border-slate-700/60 transition-colors"
+            title={isRtl ? 'تنظیمات و آدرس سرور' : 'Settings & Server URL'}
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
-      {/* Action Utilities & Mobile QR */}
-      <div className="flex items-center gap-2">
-        {/* PWA Direct Install Button for Phone / PC */}
-        <PWAInstallButton isRtl={isRtl} />
-
-        {/* Admin Settings & Bot Console Button (Protected by PIN) */}
+      {/* Mobile Navigation Bar (Equal first-class priority for Mobile Web & Android) */}
+      <nav className="grid grid-cols-3 md:hidden gap-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800 text-[11px] font-medium">
         <button
-          onClick={openAdminModal}
-          className="flex items-center gap-1.5 bg-gradient-to-r from-red-950/60 to-slate-900 hover:bg-red-900/50 border border-red-500/40 text-red-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-sm group"
-          title={isRtl ? 'پنل اختصاصی ادمین (نیازمند پین‌کد)' : 'Admin Console (PIN Protected)'}
+          onClick={() => setActiveTab('dashboard')}
+          className={`py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${
+            activeTab === 'dashboard' ? 'bg-red-600 text-white shadow-sm' : 'text-slate-400'
+          }`}
         >
-          <ShieldAlert className="w-3.5 h-3.5 text-red-400 group-hover:scale-110 transition-transform" />
-          <span className="hidden sm:inline">{isRtl ? 'پنل ادمین' : 'Admin'}</span>
+          <Tv className="w-3.5 h-3.5" />
+          <span>{isRtl ? 'داشبورد' : 'Home'}</span>
         </button>
-
-        {/* Mobile Quick Connect Button */}
         <button
-          onClick={openQrModal}
-          className="flex items-center gap-1.5 bg-gradient-to-r from-amber-600/20 to-orange-600/20 hover:from-amber-600/30 hover:to-orange-600/30 border border-amber-500/40 text-amber-300 px-3 py-1.5 rounded-lg text-xs font-medium transition-all shadow-sm group"
-          title={isRtl ? 'اتصال سریع با گوشی موبایل' : 'Connect with Mobile Phone'}
+          onClick={() => setActiveTab('devices')}
+          className={`py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${
+            activeTab === 'devices' ? 'bg-red-600 text-white shadow-sm' : 'text-slate-400'
+          }`}
         >
-          <Smartphone className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
-          <span className="hidden sm:inline">{isRtl ? 'ریموت با موبایل' : 'Mobile Connect'}</span>
+          <Layers className="w-3.5 h-3.5" />
+          <span>{isRtl ? 'سیستم‌ها' : 'Desks'}</span>
         </button>
-
-        {/* AI Assistant Button */}
         <button
-          onClick={openAiAssistant}
-          className="flex items-center gap-1.5 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 text-purple-300 px-3 py-1.5 rounded-lg text-xs font-medium transition-all shadow-sm"
-          title={isRtl ? 'پشتیبان هوشمند IT و عیب‌یابی' : 'AI IT Helpdesk & Diagnostics'}
+          onClick={() => setActiveTab('host')}
+          className={`py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 relative ${
+            activeTab === 'host' ? 'bg-red-600 text-white shadow-sm' : 'text-slate-400'
+          }`}
         >
-          <Sparkles className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
-          <span className="hidden xl:inline">{isRtl ? 'دستیار AI' : 'AI Copilot'}</span>
+          <Share2 className="w-3.5 h-3.5" />
+          <span>{isRtl ? 'میزبانی' : 'Host'}</span>
+          {isHosting && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />}
         </button>
-
-        {/* Language switch */}
-        <button
-          onClick={() => {
-            const nextRtl = !isRtl;
-            setIsRtl(nextRtl);
-            document.documentElement.setAttribute('dir', nextRtl ? 'rtl' : 'ltr');
-            document.documentElement.setAttribute('lang', nextRtl ? 'fa' : 'en');
-          }}
-          className="p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 text-xs font-medium border border-slate-700/60 transition-colors flex items-center gap-1"
-          title={isRtl ? 'تغییر زبان به English' : 'Change Language to Persian'}
-        >
-          <Globe className="w-3.5 h-3.5 text-slate-400" />
-          <span className="font-semibold">{isRtl ? 'FA' : 'EN'}</span>
-        </button>
-
-        {/* User Settings button */}
-        <button
-          onClick={openSettingsModal}
-          className="p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border border-slate-700/60 transition-colors"
-          title={isRtl ? 'تنظیمات کاربر' : 'User Settings'}
-        >
-          <Settings className="w-4 h-4" />
-        </button>
-      </div>
+      </nav>
     </header>
   );
 };

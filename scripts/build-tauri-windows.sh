@@ -119,7 +119,46 @@ ar = "x86_64-w64-mingw32-ar"
 EOF
 echo -e "${GREEN}[OK] Cargo linker configured to x86_64-w64-mingw32-gcc.${NC}"
 
-# 6. Build Web Frontend Assets first
+# 6. Auto-detect default Server URL for compiled Windows .exe (can still be overridden in Settings UI)
+get_clean_ip() {
+    local candidate=""
+    for api in "https://api.ipify.org" "https://ipv4.icanhazip.com" "https://ifconfig.co" "https://ident.me"; do
+        candidate=$(curl -s4 -m 3 "$api" 2>/dev/null | tr -d '[:space:]' || true)
+        if [[ "$candidate" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+    hostname -I 2>/dev/null | awk '{print $1}' || echo "127.0.0.1"
+}
+
+SERVER_IP=$(get_clean_ip)
+SERVER_PORT="3000"
+if [ -f "${PROJECT_ROOT}/.env" ]; then
+    SERVER_PORT=$(grep "^PORT=" "${PROJECT_ROOT}/.env" | cut -d '=' -f2 | tr -d '"' | tr -d "'" || echo "3000")
+fi
+
+if [ -z "${VITE_SERVER_URL:-}" ] && [ -f "${PROJECT_ROOT}/.env" ]; then
+    VITE_SERVER_URL=$(grep "^VITE_SERVER_URL=" "${PROJECT_ROOT}/.env" | cut -d '=' -f2- | tr -d '"' | tr -d "'" || true)
+fi
+
+if [ -z "${VITE_SERVER_URL:-}" ] && [ -f "/etc/nginx/sites-available/mehdesk.conf" ]; then
+    NGINX_DOM=$(grep -m 1 "server_name" /etc/nginx/sites-available/mehdesk.conf 2>/dev/null | awk '{print $2}' | tr -d ';')
+    if [ -n "$NGINX_DOM" ] && [ "$NGINX_DOM" != "_" ]; then
+        VITE_SERVER_URL="https://${NGINX_DOM}"
+    fi
+fi
+
+if [ -z "${VITE_SERVER_URL:-}" ] && [ -n "$SERVER_IP" ] && [ "$SERVER_IP" != "127.0.0.1" ]; then
+    VITE_SERVER_URL="http://${SERVER_IP}:${SERVER_PORT}"
+fi
+
+if [ -n "${VITE_SERVER_URL:-}" ]; then
+    export VITE_SERVER_URL
+    echo -e "${GREEN}[OK] Baked default Server URL into desktop client: ${VITE_SERVER_URL}${NC}"
+fi
+
+# 7. Build Web Frontend Assets first
 echo -e "\n${CYAN}[5/6] Building production web frontend...${NC}"
 npm run build
 

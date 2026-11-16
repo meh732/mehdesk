@@ -16,15 +16,18 @@ import { SessionPermissions } from '../types';
 
 export interface IncomingRequestData {
   fromId: string;
+  rawFromId?: string;
   requesterName: string;
   requesterDevice: string;
+  mode?: 'desktop' | 'file' | 'terminal';
   requiresPassword?: boolean;
+  unattendedAuthorized?: boolean;
   providedPassword?: string;
 }
 
 interface IncomingConnectionDialogProps {
   request: IncomingRequestData | null;
-  onAccept: (customPermissions?: SessionPermissions) => void;
+  onAccept: (customPermissions?: SessionPermissions) => void | Promise<void>;
   onReject: () => void;
   isRtl: boolean;
   defaultPermissions: SessionPermissions;
@@ -38,12 +41,17 @@ export const IncomingConnectionDialog: React.FC<IncomingConnectionDialogProps> =
   defaultPermissions
 }) => {
   const [permissions, setPermissions] = useState<SessionPermissions>(defaultPermissions);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [countdown, setCountdown] = useState(30);
+  const [isAccepting, setIsAccepting] = useState(false);
+  const [countdown, setCountdown] = useState(45);
 
   useEffect(() => {
-    if (!request) return;
-    setCountdown(30);
+    setPermissions(defaultPermissions);
+    setIsAccepting(false);
+  }, [request, defaultPermissions]);
+
+  useEffect(() => {
+    if (!request || isAccepting) return;
+    setCountdown(45);
     const interval = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
@@ -56,13 +64,31 @@ export const IncomingConnectionDialog: React.FC<IncomingConnectionDialogProps> =
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [request]);
+  }, [request, isAccepting, onReject]);
 
   if (!request) return null;
 
   const togglePermission = (key: keyof SessionPermissions) => {
     setPermissions((prev) => ({ ...prev, [key]: !prev[key] }));
   };
+
+  const handleAcceptClick = () => {
+    setIsAccepting(true);
+    onAccept(permissions);
+  };
+
+  const modeLabel =
+    request.mode === 'file'
+      ? isRtl
+        ? 'درخواست انتقال فایل'
+        : 'File Transfer Request'
+      : request.mode === 'terminal'
+      ? isRtl
+        ? 'درخواست ترمینال ریموت'
+        : 'Remote Terminal Request'
+      : isRtl
+      ? 'درخواست کنترل دسکتاپ'
+      : 'Remote Desktop Request';
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
@@ -78,12 +104,12 @@ export const IncomingConnectionDialog: React.FC<IncomingConnectionDialogProps> =
                 <Radio className="w-7 h-7 animate-pulse" />
               </div>
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/30">
-                    {isRtl ? 'درخواست اتصال ورودی' : 'Incoming Remote Request'}
+                    {modeLabel}
                   </span>
                   <span className="text-[11px] font-mono text-slate-400">
-                    {countdown}s
+                    {isAccepting ? (isRtl ? 'در حال تایید...' : 'Accepting...') : `${countdown}s`}
                   </span>
                 </div>
                 <h3 className="text-lg font-bold text-white mt-1">
@@ -104,7 +130,7 @@ export const IncomingConnectionDialog: React.FC<IncomingConnectionDialogProps> =
           <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-400">{isRtl ? 'شناسه ریموت درخواست‌کننده:' : 'Requester Remote ID:'}</span>
-              <span className="text-red-400 font-mono font-bold tracking-wider">{request.fromId}</span>
+              <span className="text-red-400 font-mono font-bold tracking-wider">{request.rawFromId || request.fromId}</span>
             </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-400">{isRtl ? 'نوع دستگاه:' : 'Device Type:'}</span>
@@ -217,11 +243,24 @@ export const IncomingConnectionDialog: React.FC<IncomingConnectionDialogProps> =
             </button>
 
             <button
-              onClick={() => onAccept(permissions)}
-              className="flex-1 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-xl shadow-emerald-600/30 transition-all flex items-center justify-center gap-2 active:scale-95"
+              onClick={handleAcceptClick}
+              disabled={isAccepting}
+              className="flex-1 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-60 text-white text-xs font-bold shadow-xl shadow-emerald-600/30 transition-all flex items-center justify-center gap-2 active:scale-95"
             >
               <Check className="w-4 h-4 text-white" />
-              <span>{isRtl ? 'تایید و شروع اشتراک (Accept)' : 'Accept & Share'}</span>
+              <span>
+                {request.mode === 'file'
+                  ? isRtl
+                    ? 'تایید تبادل فایل (Accept)'
+                    : 'Accept File Transfer'
+                  : request.mode === 'terminal'
+                  ? isRtl
+                    ? 'تایید دسترسی ترمینال (Accept)'
+                    : 'Accept Terminal'
+                  : isRtl
+                  ? 'تایید و شروع اشتراک (Accept)'
+                  : 'Accept & Share'}
+              </span>
             </button>
           </div>
         </div>

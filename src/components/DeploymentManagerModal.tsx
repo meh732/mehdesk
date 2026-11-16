@@ -25,6 +25,7 @@ import {
   CheckCircle2,
   AlertCircle
 } from 'lucide-react';
+import { apiUrl } from '../utils/serverConfig';
 
 interface DeploymentManagerModalProps {
   isOpen: boolean;
@@ -88,7 +89,9 @@ export const DeploymentManagerModal: React.FC<DeploymentManagerModalProps> = ({
 
   const handleTestBots = async () => {
     if (!tgToken && !baleToken) {
-      alert(isRtl ? 'لطفاً توکن ربات تلگرام یا بله را وارد کنید.' : 'Please enter Telegram or Bale bot token first.');
+      setBotTestResult({
+        telegram: isRtl ? 'لطفاً توکن ربات تلگرام یا بله را وارد کنید.' : 'Please enter Telegram or Bale bot token first.'
+      });
       return;
     }
 
@@ -96,7 +99,7 @@ export const DeploymentManagerModal: React.FC<DeploymentManagerModalProps> = ({
     setBotTestResult(null);
 
     try {
-      const res = await fetch('/api/bots/test', {
+      const res = await fetch(apiUrl('/api/bots/test'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -559,23 +562,13 @@ export const DeploymentManagerModal: React.FC<DeploymentManagerModalProps> = ({
 
                 <div className="flex flex-wrap items-center gap-3 pt-2">
                   <a
-                    href="/downloads/mehdesk-portable.exe"
+                    href={apiUrl('/downloads/mehdesk-portable.exe')}
                     download="mehdesk-portable.exe"
                     className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg shadow-emerald-600/30 transition-all"
                   >
                     <Download className="w-4 h-4" />
                     <span>{isRtl ? 'دانلود مستقیم کلاینت اگزه ویندوز (.exe)' : 'Download Windows Portable .exe'}</span>
                   </a>
-
-                  <button
-                    onClick={() => {
-                      alert(isRtl ? 'پیکربندی Tauri v2 در مسیر /src-tauri/tauri.conf.json و .cargo/config.toml برای تارگت x86_64-pc-windows-gnu تنظیم شد.' : 'Tauri config is ready in /src-tauri for target x86_64-pc-windows-gnu');
-                    }}
-                    className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs px-4 py-2.5 rounded-xl flex items-center gap-2 border border-slate-700 transition-all"
-                  >
-                    <Package className="w-4 h-4" />
-                    <span>{isRtl ? 'بررسی فایل‌های پیکربندی src-tauri' : 'Verify Tauri Config'}</span>
-                  </button>
                 </div>
               </div>
             </div>

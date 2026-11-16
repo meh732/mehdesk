@@ -22,6 +22,7 @@ import {
   Eye,
   EyeOff
 } from 'lucide-react';
+import { apiUrl } from '../utils/serverConfig';
 
 interface AdminSettingsModalProps {
   isOpen: boolean;
@@ -79,7 +80,7 @@ export const AdminSettingsModal: React.FC<AdminSettingsModalProps> = ({
   // Load config from server
   useEffect(() => {
     if (isOpen) {
-      fetch('/api/admin/settings')
+      fetch(apiUrl('/api/admin/settings'))
         .then(res => res.json())
         .then(data => {
           if (data?.config) {
@@ -131,7 +132,7 @@ export const AdminSettingsModal: React.FC<AdminSettingsModalProps> = ({
         sessionTimeoutMinutes: Number(sessionTimeoutMinutes)
       };
 
-      const res = await fetch('/api/admin/settings', {
+      const res = await fetch(apiUrl('/api/admin/settings'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -153,7 +154,7 @@ export const AdminSettingsModal: React.FC<AdminSettingsModalProps> = ({
       const firstTgChat = telegramAdminChatIds.split(/[\s,]+/)[0] || '';
       const firstBaleChat = baleAdminChatIds.split(/[\s,]+/)[0] || '';
 
-      const res = await fetch('/api/bots/test', {
+      const res = await fetch(apiUrl('/api/bots/test'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -182,7 +183,7 @@ export const AdminSettingsModal: React.FC<AdminSettingsModalProps> = ({
       // First save current values
       await handleSaveSettings();
 
-      const res = await fetch('/api/admin/dispatch-backup', {
+      const res = await fetch(apiUrl('/api/admin/dispatch-backup'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -609,7 +610,7 @@ export const AdminSettingsModal: React.FC<AdminSettingsModalProps> = ({
                         <span>{isRtl ? 'اسکریپت لینوکس همراه با تنظیمات بات‌ها' : 'Linux Script (With Bot Auto-Config)'}</span>
                       </h4>
                       <a
-                        href="/api/scripts/linux"
+                        href={apiUrl('/api/scripts/linux')}
                         download="mehdesk-linux-manager.sh"
                         className="flex items-center gap-1 text-[11px] bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded-lg transition-colors"
                       >
@@ -643,7 +644,7 @@ export const AdminSettingsModal: React.FC<AdminSettingsModalProps> = ({
                         <span>{isRtl ? 'اسکریپت ویندوز PowerShell با تنظیمات بات' : 'Windows PowerShell Script'}</span>
                       </h4>
                       <a
-                        href="/api/scripts/windows-ps1"
+                        href={apiUrl('/api/scripts/windows-ps1')}
                         download="install-windows.ps1"
                         className="flex items-center gap-1 text-[11px] bg-sky-600/20 hover:bg-sky-600/30 text-sky-400 border border-sky-500/30 px-2.5 py-1 rounded-lg transition-colors"
                       >

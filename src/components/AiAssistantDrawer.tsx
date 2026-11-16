@@ -16,6 +16,7 @@ import {
   Zap,
   Wrench
 } from 'lucide-react';
+import { apiUrl } from '../utils/serverConfig';
 
 interface AiAssistantDrawerProps {
   isOpen: boolean;
@@ -69,7 +70,7 @@ export const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({
     setLoading(true);
 
     try {
-      const response = await fetch('/api/ai/diagnose', {
+      const response = await fetch(apiUrl('/api/ai/diagnose'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
